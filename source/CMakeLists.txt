@@ -22,6 +22,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 
 set(APP_SOURCES
+        src/F3BNKReader.cpp
         src/main.cpp
         src/Utilities/GameBackup.cpp
         src/Utilities/GameBackup.h
