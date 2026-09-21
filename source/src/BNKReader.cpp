@@ -15,7 +15,9 @@
 #include <fstream>
 #include <chrono>
 #include <thread>
+#include <memory>
 #include <zlib.h>
+#include "F3BNKReader.h"
 
 struct FileEntry {
     std::string name;
@@ -59,6 +61,10 @@ public:
         const FileEntry* entry = nullptr;
         for (auto& e : file_entries) if (e.name == name) { entry = &e; break; }
         if (!entry) throw std::runtime_error("file not found");
+        if (_f3) {
+            _f3->extract_file(name, out_path);
+            return;
+        }
         std::filesystem::path p(out_path);
         std::filesystem::create_directories(p.parent_path());
         std::ofstream out(out_path, std::ios::binary);
@@ -68,6 +74,10 @@ public:
 
     void extract_all(const std::filesystem::path& out_dir) {
         std::filesystem::create_directories(out_dir);
+        if (_f3) {
+            _f3->extract_all(out_dir);
+            return;
+        }
         for (auto& e : file_entries) {
             std::filesystem::path target = out_dir / (e.name.empty() ? hex_name(e.offset) : e.name);
             std::filesystem::create_directories(target.parent_path());
@@ -80,6 +90,9 @@ public:
     std::vector<uint8_t> extract_index_bytes(int index) {
         if (index < 0 || index >= (int)file_entries.size())
             throw std::runtime_error("extract_index_bytes: index out of range");
+        if (_f3) {
+            return _f3->extract_index_bytes(index);
+        }
         return extract_entry_bytes_impl(file_entries[(size_t)index]);
     }
 
@@ -140,6 +153,7 @@ private:
     std::vector<uint8_t> _file_table_blob;
     std::vector<FileEntry> file_entries;
     bool _is_v2 = false;
+    std::unique_ptr<F3BNKReader> _f3;
 
     static uint32_t be_u32(const uint8_t* p) {
         return (uint32_t(p[0])<<24)|(uint32_t(p[1])<<16)|(uint32_t(p[2])<<8)|uint32_t(p[3]);
@@ -408,6 +422,7 @@ private:
     }
 
     std::vector<uint8_t> extract_entry_bytes_impl(const FileEntry& e) {
+        if (_f3) return _f3->extract_file_bytes(e.name);
         if (_mode == Mode::Directory) return read_directory_entry(e);
         std::vector<uint8_t> out;
         seek_to(e.offset);
@@ -463,6 +478,11 @@ private:
     }
 
     void extract_entry_to(const FileEntry& e, std::ofstream& out) {
+        if (_f3) {
+            const auto buf = _f3->extract_file_bytes(e.name);
+            out.write(reinterpret_cast<const char*>(buf.data()), std::streamsize(buf.size()));
+            return;
+        }
         if (_mode == Mode::Directory) {
             const std::vector<uint8_t> buf = read_directory_entry(e);
             out.write(reinterpret_cast<const char*>(buf.data()),
@@ -622,6 +642,31 @@ inline BNKReader::BNKReader(const std::string& path) {
         if (_file_table_blob.empty())
             throw std::runtime_error("Failed to read BNK header (decompressed file table is empty).");
         parse_tables();
+        return;
+    }
+
+    // Fable III uses a paired .bnk/.bnk.dat format with a different
+    // index layout from the Fable II BNK formats handled below.
+    if (F3BNKReader::IsF3BNK(path)) {
+        _mode = Mode::Disk;
+        _disk_path = path;
+        _f3 = std::make_unique<F3BNKReader>(path);
+
+        const auto& f3_entries = _f3->list_files();
+        file_entries.reserve(f3_entries.size());
+
+        for (const auto& e : f3_entries) {
+            FileEntry fe{
+                e.name,
+                e.offset,
+                e.uncompressed_size,
+                e.compressed_size,
+                e.compressed,
+                e.decompressed_chunk_sizes
+            };
+            file_entries.push_back(std::move(fe));
+        }
+
         return;
     }
 
