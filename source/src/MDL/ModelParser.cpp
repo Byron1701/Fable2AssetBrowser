@@ -1,4 +1,5 @@
 #include "ModelParser.h"
+#include "F3MDLReader.h"
 #include "../Utilities/Files.h"
 #include "../Utilities/Utils.h"
 #include "../Utilities/State.h"
