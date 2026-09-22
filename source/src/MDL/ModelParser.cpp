@@ -18,6 +18,7 @@
 using std::uint8_t; using std::uint16_t; using std::uint32_t;
 
 #include "ModelParser/Loading/BufferAssembly.inl"
+#include "ModelParser/F3.inl"
 
 namespace {
 #include "ModelParser/Core/BinaryUtilities.inl"
