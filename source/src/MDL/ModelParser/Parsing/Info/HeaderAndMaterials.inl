@@ -3,6 +3,7 @@ bool parse_mdl_info(const std::vector<unsigned char>& data, MDLInfo& out){
 }
 
 bool parse_mdl_info(const std::vector<unsigned char>& data, MDLInfo& out, const std::string& file_path){
+    if (parse_f3_mdl_info(data, out)) return true;
     if(data.size() < 8) return false;
     R r{data.data(), data.size(), 0};
 
