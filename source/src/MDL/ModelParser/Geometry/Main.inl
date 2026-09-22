@@ -1,4 +1,7 @@
 bool parse_mdl_geometry(const std::vector<unsigned char>& data, const MDLInfo& info, std::vector<MDLMeshGeom>& out){
+    if (F3MDL::Reader::IsF3MDL(std::vector<std::uint8_t>(data.begin(), data.end()))) {
+        return build_f3_mdl_geometry(data, out);
+    }
     out.clear();
     if(info.MeshBuffers.size()!=info.Meshes.size()){
         return true;
