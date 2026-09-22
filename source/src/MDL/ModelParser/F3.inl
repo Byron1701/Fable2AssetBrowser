@@ -11,9 +11,9 @@ static bool parse_f3_mdl_info(const std::vector<unsigned char>& data,
     std::string error;
     if (!reader.Load(bytes, &error)) return false;
 
-    const auto& skel = reader.skeleton();
-    const auto& mats = reader.materials();
-    const auto& meshes = reader.meshes();
+    const auto& skel = reader.GetSkeleton();
+    const auto& mats = reader.GetMaterials();
+    const auto& meshes = reader.GetMeshes();
 
     out = {};
     out.Magic = "F3MDL";
