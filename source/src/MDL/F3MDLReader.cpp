@@ -121,12 +121,23 @@ float Reader::HalfToFloat(std::uint16_t h) {
             std::memcpy(&f, &bits, sizeof(f));
             return f;
         }
+
+        // Subnormal half: normalize the mantissa using a signed exponent
+        // adjustment rather than underflowing the unsigned exponent field.
+        int e = -14;
         while ((fraction & 0x400u) == 0) {
             fraction <<= 1;
-            --exponent;
+            --e;
         }
-        ++exponent;
-        fraction &= ~0x400u;
+        fraction &= 0x3ffu;
+
+        const std::uint32_t exponent32 =
+            static_cast<std::uint32_t>(e + 127);
+        const std::uint32_t bits =
+            (sign << 31) | (exponent32 << 23) | (fraction << 13);
+        float f;
+        std::memcpy(&f, &bits, sizeof(f));
+        return f;
     } else if (exponent == 31) {
         const std::uint32_t bits = (sign << 31) | 0x7f800000u | (fraction << 13);
         float f;
@@ -158,15 +169,71 @@ bool Reader::LooksLikeTexturePath(const std::string& s) {
 }
 
 bool Reader::IsF3MDL(const std::vector<std::uint8_t>& bytes) {
-    // There is no reliable ASCII magic. The first dword is a model hash and
-    // the next eight bytes are zero padding in the known F3 MDLs. The first
-    // skeleton byte is at 0x0C and is a small dummy count.
+    // F3 MDLs have no ASCII magic: a 32-bit model hash is followed by eight
+    // zero bytes, then the dummy table begins at 0x0C. The cheap header test
+    // is followed by a structural sanity check so an unrelated binary with
+    // eight zero bytes at 0x04 is not accidentally routed to the F3 parser.
     if (bytes.size() < 0x40) return false;
-    const bool pad = bytes[4] == 0 && bytes[5] == 0 && bytes[6] == 0 && bytes[7] == 0 &&
-                     bytes[8] == 0 && bytes[9] == 0 && bytes[10] == 0 && bytes[11] == 0;
+
+    const bool pad =
+        bytes[4] == 0 && bytes[5] == 0 && bytes[6] == 0 && bytes[7] == 0 &&
+        bytes[8] == 0 && bytes[9] == 0 && bytes[10] == 0 && bytes[11] == 0;
     if (!pad) return false;
+
     const std::uint8_t dummyCount = bytes[0x0c];
-    return dummyCount <= 64;
+    if (dummyCount > 64) return false;
+
+    std::size_t p = 0x0d;
+    const std::size_t dummyBytes = static_cast<std::size_t>(dummyCount) * 8;
+    if (p + dummyBytes + 4 > bytes.size()) return false;
+    p += dummyBytes;
+
+    auto u32le = [&](std::size_t off) -> std::uint32_t {
+        return static_cast<std::uint32_t>(bytes[off]) |
+               (static_cast<std::uint32_t>(bytes[off + 1]) << 8) |
+               (static_cast<std::uint32_t>(bytes[off + 2]) << 16) |
+               (static_cast<std::uint32_t>(bytes[off + 3]) << 24);
+    };
+
+    const std::uint32_t hierarchyCount = u32le(p);
+    if (hierarchyCount > 4096) return false;
+    p += 4;
+
+    const std::size_t hierarchyBytes =
+        static_cast<std::size_t>(hierarchyCount) * 8;
+    if (p + hierarchyBytes + 4 > bytes.size()) return false;
+    p += hierarchyBytes;
+
+    const std::uint32_t boneCount = u32le(p);
+    if (boneCount > 4096) return false;
+    p += 4;
+
+    const std::size_t boneBytes =
+        static_cast<std::size_t>(boneCount) * 44;
+    if (p + boneBytes + 40 + 24 + 1 + 4 > bytes.size()) return false;
+
+    // The ten-float origin and six header counts must fit after the skeleton.
+    p += boneBytes + 40;
+    const std::uint32_t materialCount = u32le(p);
+    const std::uint32_t staticMeshCount = u32le(p + 4);
+    const std::uint32_t skeletalMeshCount = u32le(p + 8);
+    const std::uint32_t planeMeshCount = u32le(p + 12);
+    const std::uint32_t unknown0 = u32le(p + 16);
+    const std::uint32_t unknown1 = u32le(p + 20);
+
+    if (materialCount > 4096 ||
+        staticMeshCount > 4096 ||
+        skeletalMeshCount > 4096 ||
+        planeMeshCount > 4096 ||
+        unknown0 > 4096 ||
+        unknown1 > 4096) {
+        return false;
+    }
+
+    const std::uint64_t renderMeshes =
+        static_cast<std::uint64_t>(staticMeshCount) +
+        static_cast<std::uint64_t>(skeletalMeshCount);
+    return renderMeshes <= 4096;
 }
 
 bool Reader::Load(const std::string& path, std::string* error) {
