@@ -63,6 +63,7 @@ set(APP_SOURCES
         src/MDL/ModelParser/Cloth/Blocks.inl
         src/MDL/ModelParser/Cloth/Geometry.inl
         src/MDL/ModelParser/Core/BinaryUtilities.inl
+        src/MDL/ModelParser/F3.inl
         src/MDL/ModelParser/Engine/Geometry.inl
         src/MDL/ModelParser/Engine/Records.inl
         src/MDL/ModelParser/Geometry/Main.inl
