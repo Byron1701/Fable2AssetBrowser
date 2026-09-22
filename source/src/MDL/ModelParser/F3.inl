@@ -90,8 +90,8 @@ static bool build_f3_mdl_geometry(const std::vector<unsigned char>& data,
     std::string error;
     if (!reader.Load(bytes, &error)) return false;
 
-    const auto& mats = reader.materials();
-    const auto& meshes = reader.meshes();
+    const auto& mats = reader.GetMaterials();
+    const auto& meshes = reader.GetMeshes();
 
     bool any = false;
     out.reserve(meshes.size());
