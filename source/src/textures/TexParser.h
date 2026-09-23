@@ -9,3 +9,5 @@ bool build_gui_tex_buffer_for_name(const std::string &tex_name, std::vector<unsi
 
 bool build_any_tex_buffer_for_name(const std::string &tex_name, std::vector<unsigned char> &out,
                                    const std::string &preferred_bnk = std::string());
+
+bool build_f3_tex_buffer_for_name(const std::string &tex_name, std::vector<unsigned char> &out);
