@@ -13,6 +13,51 @@ bool decode_tex_to_rgba(const std::vector<unsigned char>& blob,
     g_last_decode_fail_reason.clear();
     g_last_decode_info.clear();
     if (out_has_alpha) *out_has_alpha = false;
+    // Fable 3 TEX has its own native header and must not be passed through
+    // the Fable 2 TexInfo parser. The F3 header identifies the dimensions,
+    // mip offsets and format directly.
+    if (F3Tex::IsF3Tex(blob)) {
+        F3Tex::Info fi{};
+        std::string ferr;
+        if (!F3Tex::Parse(blob, fi, &ferr))
+            DEC_FAIL("f3_tex_parse_failed:" + ferr);
+
+        if (fi.format != F3Tex::kFormatBC1)
+            DEC_FAIL("f3_tex_format_not_yet_supported:" + std::to_string(fi.format));
+
+        const size_t best =
+            (mip_index >= 0 && static_cast<size_t>(mip_index) < fi.mips.size())
+                ? static_cast<size_t>(mip_index) : 0;
+        const auto& m = fi.mips[best];
+        if (static_cast<size_t>(m.offset) + m.size > blob.size())
+            DEC_FAIL("f3_tex_mip_oob");
+
+        std::vector<uint8_t> bc1(
+            blob.begin() + static_cast<std::ptrdiff_t>(m.offset),
+            blob.begin() + static_cast<std::ptrdiff_t>(m.offset + m.size));
+
+        // F3 TEX DXT1 payload is stored as ordinary DDS/BC1 blocks. Unlike
+        // the Xbox-360 F2 path, do not apply the F2 endian swap or tiling.
+        blit_bc1_to_rgba(bc1.data(), static_cast<int>(m.width),
+                         static_cast<int>(m.height), rgba);
+        out_w = static_cast<int>(m.width);
+        out_h = static_cast<int>(m.height);
+
+        if (out_has_alpha) {
+            bool alpha = false;
+            for (size_t i = 3; i < rgba.size(); i += 4) {
+                if (rgba[i] < 255) { alpha = true; break; }
+            }
+            *out_has_alpha = alpha;
+        }
+        std::ostringstream os;
+        os << "F3 TEX pf=" << fi.format
+           << " mips=" << fi.mips.size()
+           << " w=" << fi.width << " h=" << fi.height;
+        g_last_decode_info = os.str();
+        return true;
+    }
+
     TexInfo ti{};
     if (!parse_tex_info(blob, ti)) DEC_FAIL("parse_tex_info_failed");
     if (ti.Mips.empty())            DEC_FAIL("zero_mips");
