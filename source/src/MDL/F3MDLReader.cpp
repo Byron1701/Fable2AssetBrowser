@@ -431,6 +431,22 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
 
     mesh.meshIndex = iMesh;
     mesh.materialIndex = iMaterial;
+
+    // Validate allocation-driving counts before touching the vectors.  A bad
+    // interpretation of an F3 mesh header must become a parse error, never a
+    // giant allocation or subsequent out-of-bounds access.
+    if (nVerts > 2'000'000u) {
+        SetError(error, "Implausible F3 MDL vertex count " + std::to_string(nVerts) +
+                         " at mesh " + std::to_string(meshIndex) +
+                         " (offset 0x" + [&]{ std::ostringstream s; s << std::hex << cursor_; return s.str(); }() + ")");
+        return false;
+    }
+    if (nTris > 4'000'000u) {
+        SetError(error, "Implausible F3 MDL triangle count " + std::to_string(nTris) +
+                         " at mesh " + std::to_string(meshIndex));
+        return false;
+    }
+
     if (iMaterial >= materials_.size()) {
         SetError(error, "F3 MDL mesh references invalid material index " + std::to_string(iMaterial));
         return false;
