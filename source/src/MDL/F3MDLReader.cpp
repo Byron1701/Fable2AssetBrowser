@@ -30,6 +30,10 @@ void Reader::SetError(std::string* error, const std::string& message) {
 }
 
 bool Reader::Need(std::size_t n, std::string* error) const {
+    if (cursor_ > bytes_.size()) {
+        SetError(error, "F3 MDL cursor past end of file");
+        return false;
+    }
     if (n > bytes_.size() - cursor_) {
         std::ostringstream ss;
         ss << "F3 MDL truncated at 0x" << std::hex << cursor_
@@ -48,10 +52,12 @@ bool Reader::Skip(std::size_t n, std::string* error) {
 }
 
 std::uint8_t Reader::ReadU8() {
+    if (!Need(1, nullptr)) return 0;
     return bytes_[cursor_++];
 }
 
 std::uint16_t Reader::ReadU16() {
+    if (!Need(2, nullptr)) return 0;
     const std::uint16_t v = static_cast<std::uint16_t>(bytes_[cursor_]) |
                             (static_cast<std::uint16_t>(bytes_[cursor_ + 1]) << 8);
     cursor_ += 2;
@@ -63,6 +69,7 @@ std::int16_t Reader::ReadI16() {
 }
 
 std::uint32_t Reader::ReadU32() {
+    if (!Need(4, nullptr)) return 0;
     const std::uint32_t v =
         static_cast<std::uint32_t>(bytes_[cursor_]) |
         (static_cast<std::uint32_t>(bytes_[cursor_ + 1]) << 8) |
@@ -84,6 +91,10 @@ float Reader::ReadF32() {
 }
 
 std::string Reader::ReadCString(std::string* error) {
+    if (cursor_ >= bytes_.size()) {
+        SetError(error, "Unterminated F3 MDL string");
+        return {};
+    }
     const std::size_t start = cursor_;
     while (cursor_ < bytes_.size() && bytes_[cursor_] != 0) {
         ++cursor_;
@@ -270,6 +281,7 @@ bool Reader::Parse(std::string* error) {
         return false;
     }
 
+    if (!Need(4, error)) return false;
     header_.fnvHash = ReadU32();
     if (!Skip(8, error)) return false;
 
@@ -316,12 +328,14 @@ bool Reader::ParseSkeleton(std::string* error) {
 
     skeleton_.dummies.reserve(dummyCount);
     for (std::uint8_t i = 0; i < dummyCount; ++i) {
+        if (!Need(8, error)) return false;
         Dummy d;
         d.nameHash = ReadU32();
         d.id = ReadI32();
         skeleton_.dummies.push_back(d);
     }
 
+    if (!Need(4, error)) return false;
     const std::uint32_t hierarchyCount = ReadU32();
     if (hierarchyCount > 4096) {
         SetError(error, "Implausible F3 MDL hierarchy count");
@@ -330,10 +344,12 @@ bool Reader::ParseSkeleton(std::string* error) {
     skeleton_.hierarchyNameHashes.resize(hierarchyCount);
     skeleton_.hierarchyParents.resize(hierarchyCount);
     for (std::uint32_t i = 0; i < hierarchyCount; ++i) {
+        if (!Need(8, error)) return false;
         skeleton_.hierarchyNameHashes[i] = ReadU32();
         skeleton_.hierarchyParents[i] = ReadI32();
     }
 
+    if (!Need(4, error)) return false;
     const std::uint32_t boneCount = ReadU32();
     if (boneCount > 4096) {
         SetError(error, "Implausible F3 MDL bone count");
@@ -341,6 +357,7 @@ bool Reader::ParseSkeleton(std::string* error) {
     }
     skeleton_.bones.reserve(boneCount);
     for (std::uint32_t i = 0; i < boneCount; ++i) {
+        if (!Need(44, error)) return false;
         Bone b;
         b.nameHash = skeleton_.hierarchyNameHashes.size() > i
                    ? skeleton_.hierarchyNameHashes[i] : 0;
@@ -457,6 +474,11 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
     const std::uint32_t unknown = ReadU32();
     const std::uint32_t nVerts = ReadU32();
 
+    if (nVerts > 1'000'000u || nTris > 10'000'000u) {
+        SetError(error, "Implausible F3 MDL vertex/triangle counts");
+        return false;
+    }
+
     mesh.meshIndex = iMesh;
     mesh.materialIndex = iMaterial;
     if (iMaterial >= materials_.size()) {
@@ -475,6 +497,7 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
     mesh.splits.reserve(splitCount);
     std::uint64_t totalTris = 0;
     for (std::uint32_t s = 0; s < splitCount; ++s) {
+        if (!Need(4 + 1 + 4 + 4 + 24 + (skeletal ? 4 : 0), error)) return false;
         MeshSplit split;
         split.unknown = ReadU32();
         ReadU8(); // pad
@@ -486,13 +509,13 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
         mesh.splits.push_back(split);
     }
 
-    if (totalTris != nTris) {
-        // Keep parsing because the file's explicit split totals are the native
-        // geometry count, but reject only impossible sizes.
-        if (totalTris > 10'000'000) {
-            SetError(error, "Implausible F3 MDL triangle count");
-            return false;
-        }
+    if (totalTris > 10'000'000ull) {
+        SetError(error, "Implausible F3 MDL triangle count");
+        return false;
+    }
+    if (totalTris != nTris && totalTris > 10'000'000ull) {
+        SetError(error, "Implausible F3 MDL triangle count");
+        return false;
     }
 
     if (skeletal) {
@@ -507,6 +530,7 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
                 SetError(error, "Implausible F3 MDL bone-group size");
                 return false;
             }
+            if (!Need(static_cast<std::size_t>(count) * 4, error)) return false;
             for (std::uint32_t j = 0; j < count; ++j) {
                 mesh.boneIds.push_back(ReadU32());
             }
@@ -518,6 +542,7 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
         Vertex& v = mesh.vertices[i];
         v.skinned = skeletal;
         if (skeletal) {
+            if (!Need(2 * 4 + 4 + 4 * 4 + 2 * 2, error)) return false;
             const std::uint16_t hx = ReadU16();
             const std::uint16_t hy = ReadU16();
             const std::uint16_t hz = ReadU16();
@@ -527,6 +552,7 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
             for (auto& w : v.boneWeights) w = ReadU8();
             v.uv = {HalfToFloat(ReadU16()), HalfToFloat(ReadU16())};
         } else {
+            if (!Need(2 * 5 + 2 * 2, error)) return false;
             const std::uint16_t hx = ReadU16();
             const std::uint16_t hy = ReadU16();
             const std::uint16_t hz = ReadU16();
@@ -541,6 +567,7 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
     // Second packed vertex stream. Keshire uses the first three half-floats as
     // the normal. The remaining five values are retained only by the game.
     for (std::uint32_t i = 0; i < nVerts; ++i) {
+        if (!Need(2 * 8, error)) return false;
         Vertex& v = mesh.vertices[i];
         v.normal.x = HalfToFloat(ReadU16());
         v.normal.y = HalfToFloat(ReadU16());
@@ -557,7 +584,12 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
     }
 
     mesh.triangles.reserve(static_cast<std::size_t>(totalTris));
+    if (totalTris > static_cast<std::uint64_t>(std::numeric_limits<std::size_t>::max() / sizeof(std::array<std::uint16_t, 3>))) {
+        SetError(error, "Implausible F3 MDL triangle table size");
+        return false;
+    }
     for (std::uint64_t i = 0; i < totalTris; ++i) {
+        if (!Need(6, error)) return false;
         const std::int16_t a = ReadI16();
         const std::int16_t b = ReadI16();
         const std::int16_t c = ReadI16();
@@ -577,7 +609,12 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
     // as render geometry yet, but we must consume the exact structure so the
     // next mesh begins at the correct offset.
     const std::uint32_t clothCount = ReadU32();
+    if (clothCount > 256) {
+        SetError(error, "Implausible F3 MDL cloth count");
+        return false;
+    }
     for (std::uint32_t c = 0; c < clothCount; ++c) {
+        if (!Need(9 * 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4, error)) return false;
         const std::uint32_t n1 = ReadU32();
         const std::uint32_t n2 = ReadU32();
         const std::uint32_t nCVerts = ReadU32();
@@ -594,6 +631,7 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
             if (!Skip(static_cast<std::size_t>(nCVerts) * 16, error)) return false;
         }
 
+        if (!Need(5 * 4 + 24 + 1 + 1, error)) return false;
         const std::uint32_t n12 = ReadU32();
         const std::uint32_t n13 = ReadU32();
         const std::uint32_t n14 = ReadU32();
@@ -621,6 +659,10 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
         if (!Skip(static_cast<std::size_t>(n12) * 32, error)) return false;
         if (!Skip(static_cast<std::size_t>(n14) * 56, error)) return false;
         const std::uint32_t tailCount = skeletal ? (n8 - n5) : (nCVerts - n5);
+        if (tailCount > 1'000'000u) {
+            SetError(error, "Implausible F3 MDL cloth tail count");
+            return false;
+        }
         if (!Skip(static_cast<std::size_t>(tailCount) * 8, error)) return false;
     }
 
