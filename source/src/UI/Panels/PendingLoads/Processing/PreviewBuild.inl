@@ -11,8 +11,19 @@
                 g_mp_initialized = MP_Init(device, g_mp, 800, 600);
             }
             if (g_mp_initialized) {
+                OutputLog::info(
+                    "F3 MDL handoff: PRE_BUILD meshes=" +
+                    std::to_string(S.mdl_meshes.size()) +
+                    " bones=" + std::to_string(S.mdl_info.BoneCount));
+
                 const bool built =
                     MP_Build(device, S.mdl_meshes, S.mdl_info, g_mp);
+
+                OutputLog::info(
+                    "F3 MDL handoff: POST_BUILD built=" +
+                    std::string(built ? "true" : "false") +
+                    " gpu_meshes=" + std::to_string(g_mp.meshes.size()) +
+                    " has_model=" + std::string(g_mp.has_model ? "true" : "false"));
                 if (built && capture_model_tab) {
                     ContentTabs::CaptureCurrentModel();
                 }
