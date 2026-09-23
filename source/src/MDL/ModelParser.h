@@ -112,6 +112,9 @@ struct MDLMeshGeom {
     float water_shallow_colour[3] = {0.155f, 0.285f, 0.235f};
     float water_deep_colour[3] = {0.010f, 0.075f, 0.085f};
     float water_theme_params[10] = {};
+    // Source material slot used by formats (such as Fable III) that
+    // carry the material index alongside the mesh geometry.
+    uint32_t MaterialIndex = 0;
     uint32_t MeshIndex = 0;
     uint32_t SubMeshIndex = 0;
 
