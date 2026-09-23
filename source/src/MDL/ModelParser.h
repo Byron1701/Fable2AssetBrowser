@@ -114,6 +114,7 @@ struct MDLMeshGeom {
     float water_theme_params[10] = {};
     uint32_t MeshIndex = 0;
     uint32_t SubMeshIndex = 0;
+    uint8_t MaterialIndex = 0;
 
     struct PickRange {
         uint32_t selection_id = 0;
