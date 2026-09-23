@@ -180,6 +180,7 @@ static bool build_f3_mdl_geometry(const std::vector<unsigned char>& data,
         g.name = m.name.empty()
             ? ("mesh_" + std::to_string(m.meshIndex))
             : m.name;
+        g.MaterialIndex = m.materialIndex;
         g.MeshIndex = m.meshIndex;
         g.SubMeshIndex = 0;
         g.alpha_test = true;
