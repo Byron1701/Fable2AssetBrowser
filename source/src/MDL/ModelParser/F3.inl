@@ -9,7 +9,10 @@ static bool parse_f3_mdl_info(const std::vector<unsigned char>& data,
 
     F3MDL::Reader reader;
     std::string error;
-    if (!reader.Load(bytes, &error)) return false;
+    if (!reader.Load(bytes, &error)) {
+        OutputLog::error("F3 MDL parse failed: " + error);
+        return false;
+    }
 
     const auto& skel = reader.GetSkeleton();
     const auto& mats = reader.GetMaterials();
