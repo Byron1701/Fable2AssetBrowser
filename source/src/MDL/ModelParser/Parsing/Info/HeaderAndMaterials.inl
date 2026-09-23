@@ -8,7 +8,13 @@ bool parse_mdl_info(const std::vector<unsigned char>& data, MDLInfo& out, const 
     // falling through here feeds an F3 binary to the legacy parser, whose
     // format assumptions are incompatible and can crash the Browser.
     const std::vector<std::uint8_t> f3_bytes(data.begin(), data.end());
-    if (F3MDL::Reader::IsF3MDL(f3_bytes)) {
+    bool looks_like_f3 = f3_bytes.size() >= 0x40;
+    if (looks_like_f3) {
+        for (std::size_t i = 4; i < 12; ++i) {
+            if (f3_bytes[i] != 0) { looks_like_f3 = false; break; }
+        }
+    }
+    if (F3MDL::Reader::IsF3MDL(f3_bytes) || looks_like_f3) {
         return parse_f3_mdl_info(data, out);
     }
     if(data.size() < 8) return false;
