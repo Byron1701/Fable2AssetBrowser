@@ -3,6 +3,8 @@
 #include "Utilities/Files.h"
 #include "Utilities/Utils.h"
 #include "BNKCore.cpp"
+#include "../F3BNKReader.h"
+#include "F3TexParser.h"
 #include "Level/Core/LevelLoader.h"
 #include <filesystem>
 #include <fstream>
@@ -562,6 +564,89 @@ bool build_gui_tex_buffer_for_name(const std::string &tex_name, std::vector<unsi
     } catch (...) {
         std::filesystem::remove(tmp_h, ec);
         std::filesystem::remove(tmp_r, ec);
+        return false;
+    }
+}
+
+bool build_f3_tex_buffer_for_name(const std::string &tex_name, std::vector<unsigned char> &out) {
+    auto norm = [](std::string s) {
+        std::transform(s.begin(), s.end(), s.begin(),
+                       [](unsigned char c) { return (char)std::tolower(c); });
+        std::replace(s.begin(), s.end(), '\\\\', '/');
+        return s;
+    };
+    auto base = [&](const std::string& s) {
+        const std::string n = norm(s);
+        const size_t p = n.find_last_of('/');
+        return p == std::string::npos ? n : n.substr(p + 1);
+    };
+
+    const std::string wanted = norm(tex_name);
+    const std::string wanted_base = base(tex_name);
+
+    std::vector<std::string> paths;
+    paths.reserve(S.bnk_paths.size() + S.nested_bnk_paths.size());
+    paths.insert(paths.end(), S.bnk_paths.begin(), S.bnk_paths.end());
+    paths.insert(paths.end(), S.nested_bnk_paths.begin(), S.nested_bnk_paths.end());
+
+    struct BankPart { std::string path; std::string name; };
+    std::vector<BankPart> headers;
+    std::vector<BankPart> bodies;
+
+    for (const auto& path : paths) {
+        if (!F3BNKReader::IsF3BNK(path)) continue;
+        std::string leaf = norm(std::filesystem::path(path).filename().string());
+        const bool header_bank = leaf.find("texture") != std::string::npos &&
+                                 leaf.find("header") != std::string::npos;
+        const bool mip0_bank = leaf.find("1024mip0") != std::string::npos &&
+                               leaf.find("texture") != std::string::npos;
+        const bool body_bank = leaf.find("texture") != std::string::npos &&
+                               !header_bank && !mip0_bank;
+        if (!header_bank && !body_bank && !mip0_bank) continue;
+
+        try {
+            F3BNKReader reader(path);
+            for (const auto& e : reader.list_files()) {
+                const std::string en = norm(e.name);
+                const std::string eb = base(e.name);
+                if (en != wanted && eb != wanted_base) continue;
+                if (header_bank) headers.push_back({path, e.name});
+                else bodies.push_back({path, e.name});
+            }
+        } catch (...) {
+            continue;
+        }
+    }
+
+    if (headers.empty()) return false;
+
+    try {
+        F3BNKReader hr(headers.front().path);
+        const auto header = hr.extract_file_bytes(headers.front().name);
+        if (!F3Tex::IsF3Tex(header)) return false;
+
+        std::vector<std::uint8_t> body;
+        for (const auto& part : bodies) {
+            try {
+                F3BNKReader br(part.path);
+                body = br.extract_file_bytes(part.name);
+                if (!body.empty()) break;
+            } catch (...) {}
+        }
+        if (body.empty()) return false;
+
+        out = header;
+        out.insert(out.end(), body.begin(), body.end());
+
+        F3Tex::Info info{};
+        std::string err;
+        if (!F3Tex::Parse(out, info, &err)) {
+            out.clear();
+            return false;
+        }
+        return true;
+    } catch (...) {
+        out.clear();
         return false;
     }
 }
