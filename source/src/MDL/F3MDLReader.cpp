@@ -6,6 +6,7 @@
 #include <fstream>
 #include <limits>
 #include <sstream>
+#include <stdexcept>
 
 namespace F3MDL {
 
@@ -30,7 +31,7 @@ void Reader::SetError(std::string* error, const std::string& message) {
 }
 
 bool Reader::Need(std::size_t n, std::string* error) const {
-    if (n > bytes_.size() - cursor_) {
+    if (cursor_ > bytes_.size() || n > bytes_.size() - cursor_) {
         std::ostringstream ss;
         ss << "F3 MDL truncated at 0x" << std::hex << cursor_
            << ": need 0x" << n << " bytes, have 0x"
@@ -48,10 +49,14 @@ bool Reader::Skip(std::size_t n, std::string* error) {
 }
 
 std::uint8_t Reader::ReadU8() {
+    if (cursor_ >= bytes_.size())
+        throw std::runtime_error("F3 MDL read past end (u8)");
     return bytes_[cursor_++];
 }
 
 std::uint16_t Reader::ReadU16() {
+    if (bytes_.size() - std::min(cursor_, bytes_.size()) < 2)
+        throw std::runtime_error("F3 MDL read past end (u16)");
     const std::uint16_t v = static_cast<std::uint16_t>(bytes_[cursor_]) |
                             (static_cast<std::uint16_t>(bytes_[cursor_ + 1]) << 8);
     cursor_ += 2;
@@ -63,6 +68,8 @@ std::int16_t Reader::ReadI16() {
 }
 
 std::uint32_t Reader::ReadU32() {
+    if (bytes_.size() - std::min(cursor_, bytes_.size()) < 4)
+        throw std::runtime_error("F3 MDL read past end (u32)");
     const std::uint32_t v =
         static_cast<std::uint32_t>(bytes_[cursor_]) |
         (static_cast<std::uint32_t>(bytes_[cursor_ + 1]) << 8) |
@@ -250,12 +257,28 @@ bool Reader::Load(const std::string& path, std::string* error) {
         SetError(error, "Unable to read MDL: " + path);
         return false;
     }
-    return Parse(error);
+    try {
+        return Parse(error);
+    } catch (const std::exception& e) {
+        SetError(error, std::string("F3 MDL parse exception at 0x") + [&]{ std::ostringstream s; s << std::hex << cursor_; return s.str(); }() + ": " + e.what());
+        return false;
+    } catch (...) {
+        SetError(error, "F3 MDL parse exception at unknown location");
+        return false;
+    }
 }
 
 bool Reader::Load(const std::vector<std::uint8_t>& bytes, std::string* error) {
     bytes_ = bytes;
-    return Parse(error);
+    try {
+        return Parse(error);
+    } catch (const std::exception& e) {
+        SetError(error, std::string("F3 MDL parse exception at 0x") + [&]{ std::ostringstream s; s << std::hex << cursor_; return s.str(); }() + ": " + e.what());
+        return false;
+    } catch (...) {
+        SetError(error, "F3 MDL parse exception at unknown location");
+        return false;
+    }
 }
 
 bool Reader::Parse(std::string* error) {
