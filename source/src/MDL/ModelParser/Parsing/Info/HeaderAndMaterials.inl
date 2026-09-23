@@ -3,7 +3,14 @@ bool parse_mdl_info(const std::vector<unsigned char>& data, MDLInfo& out){
 }
 
 bool parse_mdl_info(const std::vector<unsigned char>& data, MDLInfo& out, const std::string& file_path){
-    if (parse_f3_mdl_info(data, out)) return true;
+    // Fable III MDLs must never fall through to the legacy Fable II/older
+    // parser.  If the F3 reader recognises the file but rejects its structure,
+    // falling through here feeds an F3 binary to the legacy parser, whose
+    // format assumptions are incompatible and can crash the Browser.
+    const std::vector<std::uint8_t> f3_bytes(data.begin(), data.end());
+    if (F3MDL::Reader::IsF3MDL(f3_bytes)) {
+        return parse_f3_mdl_info(data, out);
+    }
     if(data.size() < 8) return false;
     R r{data.data(), data.size(), 0};
 
