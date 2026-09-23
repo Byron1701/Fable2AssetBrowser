@@ -653,6 +653,10 @@ bool build_f3_tex_buffer_for_name(const std::string &tex_name, std::vector<unsig
 
 bool build_any_tex_buffer_for_name(const std::string &tex_name, std::vector<unsigned char> &out,
                                    const std::string &preferred_bnk) {
+    // F3 uses a different BNK implementation and TEX header. Try it first;
+    // the existing path below remains the Fable 2 implementation.
+    if (build_f3_tex_buffer_for_name(tex_name, out)) return true;
+
     auto normalize_lookup_key = [](std::string s) {
         std::transform(s.begin(), s.end(), s.begin(),
                        [](unsigned char c) { return (char)std::tolower(c); });
