@@ -29,6 +29,7 @@ extern bool                       g_particle_bank_loaded;
 #include "../Utilities/State.h"
 #include "../BNKCore.cpp"
 #include "../textures/TexParser.h"
+#include "../textures/F3TexParser.h"
 #include "../textures/LhTexCodec.h"
 #include "OutputLog.h"
 #include <zlib.h>
