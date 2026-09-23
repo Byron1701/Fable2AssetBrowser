@@ -101,6 +101,31 @@ static bool build_f3_mdl_geometry(const std::vector<unsigned char>& data,
     for (const auto& m : meshes) {
         if (m.vertices.empty() || m.triangles.empty()) continue;
 
+        // Never hand malformed F3 data to the renderer.  A bad vertex-layout
+        // interpretation can produce NaN/Inf half-floats; those propagate
+        // into the model bounds and camera radius and can crash the preview.
+        bool valid = true;
+        for (const auto& v : m.vertices) {
+            if (!std::isfinite(v.position.x) || !std::isfinite(v.position.y) ||
+                !std::isfinite(v.position.z) || !std::isfinite(v.normal.x) ||
+                !std::isfinite(v.normal.y) || !std::isfinite(v.normal.z) ||
+                !std::isfinite(v.uv.x) || !std::isfinite(v.uv.y)) {
+                valid = false;
+                break;
+            }
+        }
+        if (!valid) continue;
+
+        for (const auto& tri : m.triangles) {
+            if (tri[0] >= m.vertices.size() ||
+                tri[1] >= m.vertices.size() ||
+                tri[2] >= m.vertices.size()) {
+                valid = false;
+                break;
+            }
+        }
+        if (!valid) continue;
+
         MDLMeshGeom g;
         g.positions.resize(m.vertices.size() * 3);
         g.normals.resize(m.vertices.size() * 3);
