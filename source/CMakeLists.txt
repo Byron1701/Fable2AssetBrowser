@@ -31,6 +31,7 @@ set(APP_SOURCES
         src/Utilities/Utils.cpp
         src/Utilities/Files.cpp
         src/textures/TexParser.cpp
+        src/textures/F3TexParser.cpp
         src/textures/LhTexCodec.cpp
         src/animations/AnimBank.cpp
         src/animations/AnimBank/State/Reader.inl
