@@ -124,6 +124,57 @@ bool MP_Build(ID3D11Device* dev, const std::vector<MDLMeshGeom>& geoms, const MD
             uint64_t(g.indices.size()) * uint64_t(sizeof(uint32_t));
         const std::string mesh_log_name =
             g.name.empty() ? std::to_string(i) : g.name;
+
+        // F3 -> DirectX handoff diagnostics. Keep this validation here so
+        // malformed geometry cannot reach CreateBuffer/DrawIndexed silently.
+        size_t bad_index_count = 0;
+        uint32_t max_index = 0;
+        for (uint32_t idx : g.indices) {
+            if (idx >= vcount) ++bad_index_count;
+            if (idx > max_index) max_index = idx;
+        }
+        size_t nonfinite_position_count = 0;
+        for (float f : g.positions) {
+            if (!std::isfinite(f)) ++nonfinite_position_count;
+        }
+        size_t nonfinite_normal_count = 0;
+        for (float f : g.normals) {
+            if (!std::isfinite(f)) ++nonfinite_normal_count;
+        }
+        uint32_t max_bone_id = 0;
+        size_t invalid_bone_id_count = 0;
+        if (hasBI) {
+            for (uint16_t id : g.bone_ids) {
+                if (id > max_bone_id) max_bone_id = id;
+                if (info.BoneCount > 0 && id >= info.BoneCount)
+                    ++invalid_bone_id_count;
+            }
+        }
+
+        OutputLog::info(
+            "MP_Build handoff mesh[" + std::to_string(i) + "] '" +
+            mesh_log_name + "'"
+            " v=" + std::to_string(vcount) +
+            " i=" + std::to_string(g.indices.size()) +
+            " max_i=" + std::to_string(max_index) +
+            " bad_i=" + std::to_string(bad_index_count) +
+            " normals=" + std::to_string(g.normals.size()) +
+            " uvs=" + std::to_string(g.uvs.size()) +
+            " bones=" + std::to_string(g.bone_ids.size()) +
+            " max_bone=" + std::to_string(max_bone_id) +
+            " bad_bone=" + std::to_string(invalid_bone_id_count) +
+            " nonfinite_pos=" + std::to_string(nonfinite_position_count) +
+            " nonfinite_norm=" + std::to_string(nonfinite_normal_count) +
+            " material=" + std::to_string(g.MaterialIndex));
+
+        if (bad_index_count != 0 || nonfinite_position_count != 0 ||
+            nonfinite_normal_count != 0 ||
+            invalid_bone_id_count != 0) {
+            OutputLog::error(
+                "MP_Build handoff rejected mesh '" + mesh_log_name +
+                "' due to invalid geometry");
+            continue;
+        }
         if (vb_bytes == 0 || ib_bytes == 0 ||
             vb_bytes > std::numeric_limits<UINT>::max() ||
             ib_bytes > std::numeric_limits<UINT>::max()) {
