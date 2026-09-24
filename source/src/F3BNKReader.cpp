@@ -85,17 +85,20 @@ bool F3BNKReader::IsF3BNK(const std::string& path) {
 F3BNKReader::F3BNKReader(const std::string& bnk_path) {
     _index = read_file(bnk_path);
     const std::filesystem::path p(bnk_path);
-    std::filesystem::path dat = p;
-    dat += ".dat";
-    if (!std::filesystem::exists(dat))
-        throw std::runtime_error("F3 BNK: missing content file " + dat.string());
-    _content = read_file(dat);
+    _content_path = p;
+    _content_path += ".dat";
+    if (!std::filesystem::exists(_content_path))
+        throw std::runtime_error("F3 BNK: missing content file " + _content_path.string());
+    std::error_code ec;
+    _content_size = std::filesystem::file_size(_content_path, ec);
+    if (ec)
+        throw std::runtime_error("F3 BNK: failed to size " + _content_path.string());
     parse();
 }
 
 F3BNKReader::F3BNKReader(const std::vector<std::uint8_t>& index_bytes,
                          const std::vector<std::uint8_t>& content_bytes)
-    : _index(index_bytes), _content(content_bytes) {
+    : _index(index_bytes), _content(content_bytes), _content_size(content_bytes.size()) {
     parse();
 }
 
@@ -283,17 +286,33 @@ void F3BNKReader::parse_index() {
 }
 
 std::vector<std::uint8_t> F3BNKReader::extract_entry(const FileEntry& e) const {
-    if (e.offset > _content.size() ||
-        static_cast<std::uint64_t>(e.offset) + e.compressed_size > _content.size())
+    const std::uint64_t stored_size = e.compressed ? e.compressed_size : e.uncompressed_size;
+    if (static_cast<std::uint64_t>(e.offset) + stored_size > _content_size)
         throw std::runtime_error("F3 BNK: content entry extends beyond .dat");
 
-    if (!e.compressed) {
-        if (static_cast<std::uint64_t>(e.offset) + e.uncompressed_size > _content.size())
-            throw std::runtime_error("F3 BNK: uncompressed entry extends beyond .dat");
-        return std::vector<std::uint8_t>(
-            _content.begin() + e.offset,
-            _content.begin() + e.offset + e.uncompressed_size);
+    std::vector<std::uint8_t> content;
+    if (!_content.empty()) {
+        content.assign(_content.begin() + e.offset,
+                       _content.begin() + e.offset + static_cast<std::size_t>(stored_size));
+    } else {
+        if (_content_path.empty())
+            throw std::runtime_error("F3 BNK: no content source available");
+        std::ifstream f(_content_path, std::ios::binary);
+        if (!f)
+            throw std::runtime_error("F3 BNK: failed to open " + _content_path.string());
+        f.seekg(static_cast<std::streamoff>(e.offset), std::ios::beg);
+        if (!f)
+            throw std::runtime_error("F3 BNK: failed to seek in " + _content_path.string());
+        content.resize(static_cast<std::size_t>(stored_size));
+        if (!content.empty())
+            f.read(reinterpret_cast<char*>(content.data()),
+                   static_cast<std::streamsize>(content.size()));
+        if (!f && !content.empty())
+            throw std::runtime_error("F3 BNK: failed to read content entry " + e.name);
     }
+
+    if (!e.compressed)
+        return content;
 
     if (e.decompressed_chunk_sizes.empty())
         throw std::runtime_error("F3 BNK: compressed entry has no chunks");
@@ -305,9 +324,7 @@ std::vector<std::uint8_t> F3BNKReader::extract_entry(const FileEntry& e) const {
     if (total_expected != e.uncompressed_size)
         throw std::runtime_error("F3 BNK: chunk sizes do not sum to uncompressed size");
 
-    const std::vector<std::uint8_t> compressed(
-        _content.begin() + e.offset,
-        _content.begin() + e.offset + e.compressed_size);
+    const std::vector<std::uint8_t>& compressed = content;
 
     std::vector<std::uint8_t> out;
     out.reserve(e.uncompressed_size);
