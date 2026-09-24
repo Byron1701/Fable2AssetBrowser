@@ -37,6 +37,8 @@ public:
 private:
     std::vector<std::uint8_t> _index;
     std::vector<std::uint8_t> _content;
+    std::filesystem::path _content_path;
+    std::uint64_t _content_size = 0;
     std::vector<FileEntry> _files;
     bool _content_compressed = false;
 
