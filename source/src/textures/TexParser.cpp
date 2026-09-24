@@ -572,7 +572,7 @@ bool build_f3_tex_buffer_for_name(const std::string &tex_name, std::vector<unsig
     auto norm = [](std::string s) {
         std::transform(s.begin(), s.end(), s.begin(),
                        [](unsigned char c) { return (char)std::tolower(c); });
-        std::replace(s.begin(), s.end(), '\\\\', '/');
+        std::replace(s.begin(), s.end(), '\\', '/');
         return s;
     };
     auto base = [&](const std::string& s) {
