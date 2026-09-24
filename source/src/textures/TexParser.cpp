@@ -584,58 +584,106 @@ bool build_f3_tex_buffer_for_name(const std::string &tex_name, std::vector<unsig
     const std::string wanted = norm(tex_name);
     const std::string wanted_base = base(tex_name);
 
+    struct BankPart { std::string path; std::string name; };
+    std::vector<BankPart> headers;
+    std::vector<BankPart> bodies;
+
     std::vector<std::string> paths;
     paths.reserve(S.bnk_paths.size() + S.nested_bnk_paths.size());
     paths.insert(paths.end(), S.bnk_paths.begin(), S.bnk_paths.end());
     paths.insert(paths.end(), S.nested_bnk_paths.begin(), S.nested_bnk_paths.end());
 
-    struct BankPart { std::string path; std::string name; };
-    std::vector<BankPart> headers;
-    std::vector<BankPart> bodies;
-
     for (const auto& path : paths) {
         if (!F3BNKReader::IsF3BNK(path)) continue;
-        std::string leaf = norm(std::filesystem::path(path).filename().string());
-        const bool header_bank = leaf.find("texture") != std::string::npos &&
-                                 leaf.find("header") != std::string::npos;
-        const bool mip0_bank = leaf.find("1024mip0") != std::string::npos &&
-                               leaf.find("texture") != std::string::npos;
-        const bool body_bank = leaf.find("texture") != std::string::npos &&
-                               !header_bank && !mip0_bank;
-        if (!header_bank && !body_bank && !mip0_bank) continue;
+        const std::string leaf = norm(std::filesystem::path(path).filename().string());
+
+        const bool header_bank =
+            leaf == "globals_texture_headers.bnk" ||
+            (leaf.find("texture") != std::string::npos &&
+             leaf.find("header") != std::string::npos);
+        const bool body_bank =
+            leaf == "globals_textures.bnk" ||
+            (leaf.find("texture") != std::string::npos &&
+             leaf.find("header") == std::string::npos &&
+             leaf.find("1024mip0") == std::string::npos);
+
+        if (!header_bank && !body_bank) continue;
 
         try {
             F3BNKReader reader(path);
-            for (const auto& e : reader.list_files()) {
-                const std::string en = norm(e.name);
-                const std::string eb = base(e.name);
+            for (const auto& entry : reader.list_files()) {
+                const std::string en = norm(entry.name);
+                const std::string eb = base(entry.name);
                 if (en != wanted && eb != wanted_base) continue;
-                if (header_bank) headers.push_back({path, e.name});
-                else bodies.push_back({path, e.name});
+
+                if (header_bank)
+                    headers.push_back({path, entry.name});
+                else
+                    bodies.push_back({path, entry.name});
             }
         } catch (...) {
             continue;
         }
     }
 
-    if (headers.empty()) return false;
+    // The global Fable 3 texture set consists of these two index/content
+    // pairs. Resolve them directly as a fallback if they were not included
+    // in the generic bank path lists.
+    if (headers.empty() || bodies.empty()) {
+        const auto p_header = find_bnk_by_filename("globals_texture_headers.bnk");
+        const auto p_body = find_bnk_by_filename("globals_textures.bnk");
+
+        if (p_header && p_body &&
+            F3BNKReader::IsF3BNK(*p_header) &&
+            F3BNKReader::IsF3BNK(*p_body)) {
+            try {
+                F3BNKReader hr(*p_header);
+                F3BNKReader br(*p_body);
+
+                const auto find_entry = [&](const F3BNKReader& reader) -> std::optional<std::string> {
+                    for (const auto& entry : reader.list_files()) {
+                        if (norm(entry.name) == wanted ||
+                            base(entry.name) == wanted_base)
+                            return entry.name;
+                    }
+                    return std::nullopt;
+                };
+
+                if (const auto hname = find_entry(hr))
+                    headers.push_back({*p_header, *hname});
+                if (const auto bname = find_entry(br))
+                    bodies.push_back({*p_body, *bname});
+            } catch (...) {
+            }
+        }
+    }
+
+    if (headers.empty() || bodies.empty()) {
+        out.clear();
+        return false;
+    }
 
     try {
+        // The header entry is the native 0x5C-byte F3 TEX header and the
+        // matching texture entry is the complete payload. The file bytes
+        // are reconstructed without modification.
         F3BNKReader hr(headers.front().path);
         const auto header = hr.extract_file_bytes(headers.front().name);
-        if (!F3Tex::IsF3Tex(header)) return false;
-
-        std::vector<std::uint8_t> body;
-        for (const auto& part : bodies) {
-            try {
-                F3BNKReader br(part.path);
-                body = br.extract_file_bytes(part.name);
-                if (!body.empty()) break;
-            } catch (...) {}
+        if (!F3Tex::IsF3Tex(header)) {
+            out.clear();
+            return false;
         }
-        if (body.empty()) return false;
 
-        out = header;
+        F3BNKReader br(bodies.front().path);
+        const auto body = br.extract_file_bytes(bodies.front().name);
+        if (body.empty()) {
+            out.clear();
+            return false;
+        }
+
+        out.clear();
+        out.reserve(header.size() + body.size());
+        out.insert(out.end(), header.begin(), header.end());
         out.insert(out.end(), body.begin(), body.end());
 
         F3Tex::Info info{};
@@ -644,6 +692,7 @@ bool build_f3_tex_buffer_for_name(const std::string &tex_name, std::vector<unsig
             out.clear();
             return false;
         }
+
         return true;
     } catch (...) {
         out.clear();
