@@ -263,15 +263,14 @@ void F3BNKReader::parse_index() {
             throw std::runtime_error("F3 BNK: invalid file-name length");
 
         const std::size_t name_bytes = static_cast<std::size_t>(length_with_nul - 1);
-        if (raw.size() - pos < name_bytes + 29)
+        // Fable 3 BNK filename records contain the filename followed by
+        // exactly 28 bytes of metadata. There is no additional marker byte.
+        if (raw.size() - pos < name_bytes + 28)
             throw std::runtime_error("F3 BNK: truncated file-name record");
 
         p.e.name.assign(reinterpret_cast<const char*>(raw.data() + pos), name_bytes);
         pos += name_bytes;
         pos += 28;
-        const std::uint8_t marker = raw[pos++];
-        if (marker == 0)
-            throw std::runtime_error("F3 BNK: invalid file-name marker");
 
         if (fnv1a_path(p.e.name) != p.e.name_hash)
             throw std::runtime_error("F3 BNK: filename hash mismatch for " + p.e.name);
