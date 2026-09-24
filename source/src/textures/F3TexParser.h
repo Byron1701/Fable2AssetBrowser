@@ -8,7 +8,9 @@
 namespace F3Tex {
 
 constexpr std::size_t kHeaderSize = 0x5C;
-constexpr std::uint32_t kSignature = 0xF3BBCBABu;
+// On disk the signature bytes are F3 BB CB AB; le32() therefore reads
+// them as 0xABCB BBF3 on a little-endian value.
+constexpr std::uint32_t kSignature = 0xABCBBBF3u;
 constexpr std::uint32_t kVersion = 4u;
 constexpr std::uint32_t kFormatBC1 = 0x23u;
 constexpr std::size_t kMaxMipOffsets = 11;
