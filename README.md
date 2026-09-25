@@ -1,3 +1,17 @@
+# Fable 3 Experimental Build
+Currently able to load:
+ - Fable 3 BNK files   
+ - Fable 3 MDL files (with some uv errors)
+   -With export to GLB
+ - Fable 3 TEX files
+   -With export to DDS, JPEG, PNG and TIF
+
+   <img width="1395" height="1035" alt="Fable3AssetBrowser1" src="https://github.com/user-attachments/assets/a3ca182a-3634-4718-ae57-dbf0df4917d8" />
+
+   <img width="1395" height="1031" alt="Fable3AssetBrowser2" src="https://github.com/user-attachments/assets/e04b0015-04ae-42aa-bf96-07af459f5dd7" />
+
+
+
 # Fable 2 Asset Browser
 Browse the Fable 2 BNK files. Included features:
 - Search and filter the internal files
