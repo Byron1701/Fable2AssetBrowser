@@ -155,8 +155,12 @@ bool Save(const std::string& root_dir,
         return false;
     }
 
-    const fs::path globals = fs::path(root_dir) / "data" / "Globals" /
-                             "globals.gdb";
+    const fs::path root(root_dir);
+    const bool is_data_dir =
+        root.filename().string() == "data" ||
+        root.filename().string() == "Data";
+    const fs::path globals =
+        (is_data_dir ? root : root / "data") / "Globals" / "globals.gdb";
     std::vector<uint8_t> original;
     if (!read_file(globals.string(), original, error)) {
         return false;
