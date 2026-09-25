@@ -1,6 +1,7 @@
 #include "StaticPropAuthoring.h"
 
 #include "../GDB/GdbEdit.h"
+#include "../GDB/F3Gdb.h"
 #include "../Utilities/GameBackup.h"
 
 #include <algorithm>
@@ -147,40 +148,73 @@ bool local_reference(const GdbEdit::GdbFile& gdb,
            value.type == 6 && value.value == expected;
 }
 
-bool catalog_from_gdb(const GdbEdit::GdbFile& gdb,
+bool catalog_from_gdb(const F3Gdb::File& gdb,
                       std::vector<CatalogEntry>& entries) {
     entries.clear();
-    for (const auto& mapping : gdb.NameMappings()) {
-        const auto name = gdb.Dict().find(mapping.first);
-        if (name == gdb.Dict().end() || name->second.empty()) continue;
-        const uint32_t entity = mapping.second;
-        if (!local_reference(gdb, entity, kParent, kStaticEntityBase) ||
-            !local_reference(gdb, entity, kStaticTransformComponent,
+
+    auto find_record = [&gdb](uint32_t hash) -> const F3Gdb::Record* {
+        return gdb.record_by_hash(hash);
+    };
+
+    auto local_reference = [&](uint32_t record_hash,
+                               uint32_t field_hash,
+                               uint32_t expected) -> bool {
+        const auto* record = find_record(record_hash);
+        if (!record || !record->row_type) return false;
+        for (size_t i = 0; i < record->values.size(); ++i) {
+            const auto* f = record->field(i);
+            if (f && f->column_hash == field_hash &&
+                f->data_type == 0x0600 &&
+                record->values[i] == expected) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    for (const auto& record : gdb.records()) {
+        const auto* name = gdb.name_for_record(record.hash);
+        if (!name || name->text.empty()) continue;
+
+        if (!local_reference(record.hash, kParent, kStaticEntityBase) ||
+            !local_reference(record.hash, kStaticTransformComponent,
                              kStaticTransformBase)) {
             continue;
         }
-        GdbEdit::Field graphics;
-        if (!gdb.FindLocalField(entity, kStaticMeshComponent, graphics) ||
-            graphics.type != 6 || graphics.value == 0 ||
-            graphics.value == kNull ||
-            !local_reference(gdb, graphics.value, kParent,
-                             kStaticMeshBase)) {
-            continue;
+
+        const F3Gdb::Record* graphics = nullptr;
+        for (size_t i = 0; i < record.values.size(); ++i) {
+            const auto* f = record.field(i);
+            if (f && f->column_hash == kStaticMeshComponent &&
+                f->data_type == 0x0600) {
+                graphics = find_record(record.values[i]);
+                break;
+            }
         }
-        GdbEdit::Field model;
-        if (!gdb.FindLocalField(graphics.value, kModelFile, model) ||
-            (model.type != 4 && model.type != 7) ||
-            model.value == 0 || model.value == kNull) {
+        if (!graphics) continue;
+
+        if (!local_reference(graphics->hash, kParent, kStaticMeshBase))
             continue;
+
+        uint32_t model_hash = 0;
+        bool found_model = false;
+        for (size_t i = 0; i < graphics->values.size(); ++i) {
+            const auto* f = graphics->field(i);
+            if (f && f->column_hash == kModelFile &&
+                (f->data_type == 0x0400 || f->data_type == 0x0700)) {
+                model_hash = graphics->values[i];
+                found_model = model_hash != 0 && model_hash != kNull;
+                break;
+            }
         }
+        if (!found_model) continue;
 
         CatalogEntry entry;
-        entry.internal_name = name->second;
-        entry.entity_hash = entity;
-        entry.model_path_hash = model.value;
-        const auto model_path = gdb.Dict().find(model.value);
-        if (model_path != gdb.Dict().end()) {
-            entry.model_path = model_path->second;
+        entry.internal_name = name->text;
+        entry.entity_hash = record.hash;
+        entry.model_path_hash = model_hash;
+        if (const auto* model = gdb.string_by_hash(model_hash)) {
+            entry.model_path = model->text;
         }
         entry.transform_component_field = kStaticTransformComponent;
         entry.transform_component_template = kStaticTransformBase;
@@ -188,6 +222,7 @@ bool catalog_from_gdb(const GdbEdit::GdbFile& gdb,
         entry.rotation_template = kRotationTemplate;
         entries.push_back(std::move(entry));
     }
+
     std::sort(entries.begin(), entries.end(),
               [](const CatalogEntry& left, const CatalogEntry& right) {
                   return left.internal_name < right.internal_name;
@@ -300,7 +335,7 @@ bool LoadCatalog(const std::string& root_dir,
     error.clear();
     std::vector<uint8_t> bytes;
     if (!read_file(globals_path(root_dir), bytes, error)) return false;
-    GdbEdit::GdbFile gdb;
+    F3Gdb::File gdb;
     if (!gdb.Parse(bytes, error)) {
         error = "Could not parse globals.gdb: " + error;
         return false;
