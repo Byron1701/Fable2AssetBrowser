@@ -53,7 +53,14 @@ std::string normalize_model_path(std::string path) {
 }
 
 std::filesystem::path globals_path(const std::string& root_dir) {
-    return std::filesystem::path(root_dir) / "data" / "Globals" /
+    namespace fs = std::filesystem;
+    const fs::path root(root_dir);
+    // State::root_dir points at the game's data directory. Accept a
+    // game root as well so this helper remains safe for older callers.
+    const bool is_data_dir =
+        root.filename().string() == "data" ||
+        root.filename().string() == "Data";
+    return (is_data_dir ? root : root / "data") / "Globals" /
            "globals.gdb";
 }
 
