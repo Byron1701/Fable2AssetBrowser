@@ -199,8 +199,8 @@ static bool build_f3_mdl_geometry(const std::vector<unsigned char>& data,
         if (m.materialIndex < mats.size()) {
             const auto& mat = mats[m.materialIndex];
             g.diffuse_tex_name  = mat.textures[0];
-            g.normal_tex_name   = mat.textures[1];
-            g.specular_tex_name = mat.textures[2];
+            g.specular_tex_name = mat.textures[1];
+            g.normal_tex_name   = mat.textures[2];
             g.metallic_tex_name = mat.textures[3];
             g.extra_tex_name    = mat.textures[4];
         }
