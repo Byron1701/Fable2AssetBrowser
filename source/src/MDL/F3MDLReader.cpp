@@ -21,6 +21,75 @@ constexpr std::size_t kType7PostTexture = 84;
 constexpr std::size_t kType11PreTexture = 40;
 constexpr std::size_t kType11PostTexture = 132;
 
+bool LooksLikeNativeF3Header(const std::vector<std::uint8_t>& bytes,
+                                  std::size_t off) {
+    if (off > bytes.size() || bytes.size() - off < 0x10) return false;
+
+    for (std::size_t i = 4; i < 12; ++i) {
+        if (bytes[off + i] != 0) return false;
+    }
+
+    auto u32 = [&](std::size_t p) -> std::uint32_t {
+        return static_cast<std::uint32_t>(bytes[p]) |
+               (static_cast<std::uint32_t>(bytes[p + 1]) << 8) |
+               (static_cast<std::uint32_t>(bytes[p + 2]) << 16) |
+               (static_cast<std::uint32_t>(bytes[p + 3]) << 24);
+    };
+
+    const std::size_t dummyPos = off + 12;
+    if (dummyPos >= bytes.size()) return false;
+    const std::uint8_t dummyCount = bytes[dummyPos];
+    if (dummyCount > 64) return false;
+
+    const std::size_t hierarchyCountPos =
+        dummyPos + 1 + static_cast<std::size_t>(dummyCount) * 8;
+    if (hierarchyCountPos + 4 > bytes.size()) return false;
+
+    const std::uint32_t hierarchyCount = u32(hierarchyCountPos);
+    if (hierarchyCount > 4096) return false;
+
+    const std::size_t boneCountPos =
+        hierarchyCountPos + 4 + static_cast<std::size_t>(hierarchyCount) * 8;
+    if (boneCountPos + 4 > bytes.size()) return false;
+
+    const std::uint32_t boneCount = u32(boneCountPos);
+    if (boneCount > 4096) return false;
+
+    const std::size_t postSkeleton =
+        boneCountPos + 4 + static_cast<std::size_t>(boneCount) * 44;
+    if (postSkeleton + 40 + 24 + 1 + 4 > bytes.size()) return false;
+
+    const std::uint32_t materialCount = u32(postSkeleton + 40);
+    const std::uint32_t staticMeshCount = u32(postSkeleton + 44);
+    const std::uint32_t skeletalMeshCount = u32(postSkeleton + 48);
+
+    if (materialCount > 256) return false;
+    if (staticMeshCount > 1024 || skeletalMeshCount > 1024) return false;
+    if (staticMeshCount + skeletalMeshCount == 0) return false;
+
+    return true;
+}
+
+std::size_t FindF3PayloadOffset(const std::vector<std::uint8_t>& bytes) {
+    if (LooksLikeNativeF3Header(bytes, 0)) return 0;
+
+    static constexpr char kMeshFileMagic[] = "MeshFile/";
+    constexpr std::size_t kMagicSize = sizeof(kMeshFileMagic) - 1;
+
+    if (bytes.size() < kMagicSize ||
+        !std::equal(kMeshFileMagic, kMeshFileMagic + kMagicSize,
+                    bytes.begin())) {
+        return std::numeric_limits<std::size_t>::max();
+    }
+
+    const std::size_t searchEnd = std::min<std::size_t>(bytes.size(), 0x200);
+    for (std::size_t off = 0x10; off + 12 <= searchEnd; ++off) {
+        if (LooksLikeNativeF3Header(bytes, off)) return off;
+    }
+
+    return std::numeric_limits<std::size_t>::max();
+}
+
 bool IsPrintable(unsigned char c) {
     return c >= 0x20 && c <= 0x7e;
 }
@@ -176,20 +245,7 @@ bool Reader::LooksLikeTexturePath(const std::string& s) {
 }
 
 bool Reader::IsF3MDL(const std::vector<std::uint8_t>& bytes) {
-    // Fable III MDLs do not have the older ASCII "MeshFile" magic.  They
-    // begin with a 32-bit model hash followed by eight zero bytes.  This
-    // function is deliberately only a FORMAT IDENTIFIER: structural
-    // validation belongs in Parse().  Returning false here for a structurally
-    // unusual F3 file causes the caller to fall through to the legacy parser,
-    // which interprets the binary using an incompatible layout and can crash
-    // the Browser.
-    if (bytes.size() < 0x0c) return false;
-
-    for (std::size_t i = 4; i < 12; ++i) {
-        if (bytes[i] != 0) return false;
-    }
-
-    return true;
+    return FindF3PayloadOffset(bytes) != std::numeric_limits<std::size_t>::max();
 }
 
 bool Reader::Load(const std::string& path, std::string* error) {
@@ -218,7 +274,22 @@ bool Reader::Load(const std::string& path, std::string* error) {
 }
 
 bool Reader::Load(const std::vector<std::uint8_t>& bytes, std::string* error) {
-    bytes_ = bytes;
+    const std::size_t payloadOffset = FindF3PayloadOffset(bytes);
+    if (payloadOffset == std::numeric_limits<std::size_t>::max()) {
+        SetError(error, "Not recognised as a Fable III MDL");
+        return false;
+    }
+
+    if (payloadOffset == 0) {
+        bytes_ = bytes;
+    } else {
+        // MeshFile-wrapped exports contain the native F3 MDL after a small
+        // export header.  Strip the wrapper once so all downstream parsing
+        // remains byte-for-byte identical to a native F3 MDL.
+        bytes_.assign(bytes.begin() + static_cast<std::ptrdiff_t>(payloadOffset),
+                      bytes.end());
+    }
+
     try {
         return Parse(error);
     } catch (const std::exception& e) {
