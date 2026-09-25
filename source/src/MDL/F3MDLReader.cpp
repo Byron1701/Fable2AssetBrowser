@@ -593,7 +593,7 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
             const std::uint16_t hu = ReadU16();
             const std::uint16_t hv = ReadU16();
             v.position = {HalfToFloat(hx), HalfToFloat(hy), HalfToFloat(hz)};
-            v.uv = {HalfToFloat(hu), -HalfToFloat(hv)}; // Keshire convention
+            v.uv = {HalfToFloat(hu), HalfToFloat(hv)};
         }
     }
 
