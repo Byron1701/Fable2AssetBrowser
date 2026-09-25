@@ -490,6 +490,7 @@ set(APP_SOURCES
         src/GDB/GdbEdit.cpp
         src/GDB/GdbEdit.h
         src/GDB/GdbParser.cpp
+        src/GDB/F3Gdb.cpp
         src/GDB/GdbParser.h
         src/GDB/GdbParser/Core/Definitions.inl
         src/GDB/GdbParser/Core/EmbeddedDictionary.inl
