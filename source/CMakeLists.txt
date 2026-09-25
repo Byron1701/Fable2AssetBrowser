@@ -972,6 +972,15 @@ if(FABLE_BUILD_TESTS)
     target_link_libraries(shader_bank_tests PRIVATE ZLIB::ZLIB)
     add_test(NAME shader_bank_tests COMMAND shader_bank_tests)
 
+    add_executable(f3_gdb_tests
+            tests/F3GdbTests.cpp
+            src/GDB/F3Gdb.cpp
+    )
+    target_include_directories(f3_gdb_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    add_test(NAME f3_gdb_tests COMMAND f3_gdb_tests)
+
     add_executable(gdb_edit_tests
             tests/GdbEditTests.cpp
             src/GDB/GdbEdit.cpp
