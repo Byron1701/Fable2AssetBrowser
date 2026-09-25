@@ -55,8 +55,9 @@ static bool parse_f3_mdl_info(const std::vector<unsigned char>& data,
         if (m.materialIndex < mats.size()) {
             const auto& fm = mats[m.materialIndex];
             mat.DiffuseTexName  = fm.textures[0];
-            mat.NormalTexName   = fm.textures[1];
-            mat.SpecularTexName = fm.textures[2];
+            // Fable III material texture order is diffuse, specular, normal.
+            mat.SpecularTexName = fm.textures[1];
+            mat.NormalTexName   = fm.textures[2];
             mat.MetallicTexName = fm.textures[3];
             mat.ExtraTexName    = fm.textures[4];
         }
