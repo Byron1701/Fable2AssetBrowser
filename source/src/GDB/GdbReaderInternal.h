@@ -19,6 +19,14 @@ inline uint32_t ReadBeU32(const uint8_t* p)
            uint32_t(p[3]);
 }
 
+inline float ReadBeF32(const uint8_t* p)
+{
+    uint32_t v = ReadBeU32(p);
+    float f;
+    std::memcpy(&f, &v, sizeof(f));
+    return f;
+}
+
 inline uint32_t ReadLeU32(const uint8_t* p)
 {
     return uint32_t(p[0]) |
