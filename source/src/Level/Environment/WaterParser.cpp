@@ -19,13 +19,19 @@ struct Reader {
     const uint8_t* p;
     size_t         n;
     size_t         i = 0;
+    bool little_endian = false;
 
     bool need(size_t k) const { return i + k <= n; }
 
     bool u32(uint32_t& v) {
         if (!need(4)) return false;
-        v = (uint32_t(p[i]) << 24) | (uint32_t(p[i + 1]) << 16) |
-            (uint32_t(p[i + 2]) << 8) | uint32_t(p[i + 3]);
+        if (little_endian) {
+            v = uint32_t(p[i]) | (uint32_t(p[i + 1]) << 8) |
+                (uint32_t(p[i + 2]) << 16) | (uint32_t(p[i + 3]) << 24);
+        } else {
+            v = (uint32_t(p[i]) << 24) | (uint32_t(p[i + 1]) << 16) |
+                (uint32_t(p[i + 2]) << 8) | uint32_t(p[i + 3]);
+        }
         i += 4;
         return true;
     }
@@ -52,8 +58,11 @@ bool parse_body(Reader& r, WaterBody& out)
 
     if (!r.f32(out.param_a))     return false;
     if (!r.f32(out.base_height)) return false;
-    for (float& v : out.params) {
-        if (!r.f32(v)) return false;
+    // F3 PC stores 25 water parameters; the older F2 format stores the
+    // complete 37-parameter block represented by WaterBody::params.
+    const size_t param_count = r.little_endian ? 25u : out.params.size();
+    for (size_t i = 0; i < param_count; ++i) {
+        if (!r.f32(out.params[i])) return false;
     }
 
     if (!r.strz(out.normal_map_path))    return false;
@@ -119,7 +128,20 @@ bool ParseWaterFile(const std::vector<uint8_t>& bytes, WaterScene& out)
 
     Reader r{ bytes.data(), bytes.size() };
 
-    if (!r.u32(out.version) || out.version != 2) return false;
+    // Fable 2 water files are version 2/big-endian. Fable 3 PC water
+    // files are version 3/little-endian.
+    if (bytes.size() < 4) return false;
+    const uint32_t be_version = (uint32_t(bytes[0]) << 24) |
+                                (uint32_t(bytes[1]) << 16) |
+                                (uint32_t(bytes[2]) << 8) | uint32_t(bytes[3]);
+    const uint32_t le_version = uint32_t(bytes[0]) |
+                                (uint32_t(bytes[1]) << 8) |
+                                (uint32_t(bytes[2]) << 16) |
+                                (uint32_t(bytes[3]) << 24);
+    if (be_version == 2) r.little_endian = false;
+    else if (le_version == 3 || le_version == 2) r.little_endian = true;
+    else return false;
+    if (!r.u32(out.version)) return false;
     if (!r.u32(out.body_count) || out.body_count == 0 ||
         out.body_count > kMaxBodyCount) {
         return false;
@@ -136,7 +158,7 @@ bool ParseWaterFile(const std::vector<uint8_t>& bytes, WaterScene& out)
 
     out.bodies.reserve(out.body_count);
     for (uint32_t k = 0; k < out.body_count; ++k) {
-        Reader br{ bytes.data(), bytes.size(), offsets[k] };
+        Reader br{ bytes.data(), bytes.size(), offsets[k], r.little_endian };
         WaterBody body;
         if (parse_body(br, body)) {
             out.tile_count += uint32_t(body.tiles.size());
