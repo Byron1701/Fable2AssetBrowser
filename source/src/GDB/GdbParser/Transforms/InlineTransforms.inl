@@ -6,10 +6,10 @@ bool TryReadInlineVec3(const std::vector<uint8_t>& bytes,
                        float& z)
 {
     if (q + 16 > re || q + 16 > bytes.size()) return false;
-    if (ReadBeU32(bytes.data() + q) != kInlineVec3SchemaRel) return false;
-    const float rz = ReadBeF32(bytes.data() + q + 4);
-    const float ry = ReadBeF32(bytes.data() + q + 8);
-    const float rx = ReadBeF32(bytes.data() + q + 12);
+    if (ReadGdbU32(bytes, bytes.data() + q) != kInlineVec3SchemaRel) return false;
+    const float rz = ReadGdbF32(bytes, bytes.data() + q + 4);
+    const float ry = ReadGdbF32(bytes, bytes.data() + q + 8);
+    const float rx = ReadGdbF32(bytes, bytes.data() + q + 12);
     if (!Finite3(rx, ry, rz)) return false;
     x = rx;
     y = ry;
