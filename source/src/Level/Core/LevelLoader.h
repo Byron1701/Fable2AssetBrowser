@@ -84,6 +84,8 @@ void BuildGlobalEntityCatalog();
 
 bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
                       EngineLevelInfo&            out);
+bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes,
+                        EngineLevelInfo&          out);
 
 bool RenderHeightmapToRGBA(const FlatAssetEntry& entry,
                            std::vector<uint8_t>& out_rgba,
