@@ -109,19 +109,65 @@
                         OutputLog::warn("level load cancelled before terrain mesh build");
                         return false;
                     }
-#ifdef _WIN32
-                    const bool terrain_built = BuildTerrainMesh(hg, mesh);
-#else
-                    constexpr size_t kLinuxTerrainPreviewVertices = 262144;
+                    // Gameplay GHF files can be substantially larger than the
+                    // viewport needs for an initial load. Building the full vertex/
+                    // normal/index arrays on Windows was causing the loader to stall
+                    // here at 58%. Keep the source heightfield intact, but construct
+                    // a bounded TerrainMesh preview until the dedicated streaming
+                    // terrain renderer consumes the native grid.
+                    constexpr size_t kTerrainPreviewVertices = 1048576;
                     const size_t full_vertex_count =
                         size_t(hg.width) * size_t(hg.height);
                     Level::GhfHeights preview_hg;
                     const Level::GhfHeights* render_hg = &hg;
-                    if (full_vertex_count > kLinuxTerrainPreviewVertices) {
-                        preview_hg = make_linux_preview_heightfield(
-                            hg, kLinuxTerrainPreviewVertices);
+                    if (full_vertex_count > kTerrainPreviewVertices) {
+                        const double scale =
+                            std::sqrt(double(full_vertex_count) /
+                                      double(kTerrainPreviewVertices));
+                        const uint32_t pw = std::max<uint32_t>(
+                            2, uint32_t(std::ceil(double(hg.width) / scale)));
+                        const uint32_t ph = std::max<uint32_t>(
+                            2, uint32_t(std::ceil(double(hg.height) / scale)));
+                        preview_hg = hg;
+                        preview_hg.width = pw;
+                        preview_hg.height = ph;
+                        preview_hg.heights.resize(size_t(pw) * ph);
+                        preview_hg.min_height =
+                            std::numeric_limits<float>::infinity();
+                        preview_hg.max_height =
+                            -std::numeric_limits<float>::infinity();
+                        for (uint32_t py = 0; py < ph; ++py) {
+                            const uint32_t sy = std::min<uint32_t>(
+                                hg.height - 1,
+                                uint32_t((uint64_t(py) * (hg.height - 1)) /
+                                         std::max<uint32_t>(1, ph - 1)));
+                            for (uint32_t px = 0; px < pw; ++px) {
+                                const uint32_t sx = std::min<uint32_t>(
+                                    hg.width - 1,
+                                    uint32_t((uint64_t(px) * (hg.width - 1)) /
+                                             std::max<uint32_t>(1, pw - 1)));
+                                const float v =
+                                    hg.heights[size_t(sy) * hg.width + sx];
+                                preview_hg.heights[size_t(py) * pw + px] = v;
+                                preview_hg.min_height =
+                                    std::min(preview_hg.min_height, v);
+                                preview_hg.max_height =
+                                    std::max(preview_hg.max_height, v);
+                            }
+                        }
+                        OutputLog::info(
+                            "  terrain mesh preview: " +
+                            std::to_string(hg.width) + "x" +
+                            std::to_string(hg.height) + " -> " +
+                            std::to_string(pw) + "x" +
+                            std::to_string(ph) +
+                            " vertices=" +
+                            std::to_string(size_t(pw) * ph));
                         render_hg = &preview_hg;
                     }
+#ifdef _WIN32
+                    const bool terrain_built = BuildTerrainMesh(*render_hg, mesh);
+#else
                     const bool terrain_built =
                         BuildTerrainMesh(*render_hg, mesh);
 #endif
