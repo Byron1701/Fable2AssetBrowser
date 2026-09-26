@@ -9,6 +9,8 @@
 
 namespace Gdb::detail {
 
+inline constexpr size_t kHeaderSize = 0x18;
+
 inline uint32_t ReadBeU32(const uint8_t* p)
 {
     return (uint32_t(p[0]) << 24) |
@@ -72,8 +74,6 @@ inline constexpr uint32_t kHashParent = 0x5F6317D5;
 inline constexpr uint32_t kHashVecZ = 0x050C5D45;
 inline constexpr uint32_t kHashVecY = 0x050C5D46;
 inline constexpr uint32_t kHashVecX = 0x050C5D47;
-inline constexpr size_t kHeaderSize = 0x18;
-
 struct GdbView {
     const std::vector<uint8_t>& bytes;
     uint32_t count = 0;
