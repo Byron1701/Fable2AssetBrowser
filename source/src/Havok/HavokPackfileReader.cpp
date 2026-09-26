@@ -14,45 +14,28 @@ namespace Havok {
 namespace {
 
 constexpr size_t kHeaderSize        = 0x40;
-constexpr size_t kSectionHeaderSize = 0x40;
+constexpr size_t kSectionHeaderSize = 0x30;
 
 uint32_t read_u32_be(const uint8_t* p) {
     return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) |
            (uint32_t(p[2]) << 8)  |  uint32_t(p[3]);
 }
 
-uint32_t read_u32_le(const uint8_t* p) {
-    return (uint32_t(p[3]) << 24) | (uint32_t(p[2]) << 16) |
-           (uint32_t(p[1]) << 8)  |  uint32_t(p[0]);
-}
-
-uint32_t read_u32(const uint8_t* p, bool little_endian) {
-    return little_endian ? read_u32_le(p) : read_u32_be(p);
-}
-
-float read_f32(const uint8_t* p, bool little_endian) {
-    uint32_t u = read_u32(p, little_endian);
-    float f;
-    std::memcpy(&f, &u, sizeof(f));
-    return f;
-}
-
 bool read_section_header(const std::vector<uint8_t>& bytes,
-                         size_t offset, SectionHeader& out,
-                         bool little_endian)
+                         size_t offset, SectionHeader& out)
 {
     if (offset + kSectionHeaderSize > bytes.size()) return false;
     const uint8_t* p = bytes.data() + offset;
-    char name[21] = {0};
-    std::memcpy(name, p, 20);
+    char name[17] = {0};
+    std::memcpy(name, p, 16);
     out.name = std::string(name);
-    out.absolute_data_start = read_u32(p + 0x14, little_endian);
-    out.local_fixups        = read_u32(p + 0x18, little_endian);
-    out.global_fixups       = read_u32(p + 0x1C, little_endian);
-    out.virtual_fixups      = read_u32(p + 0x20, little_endian);
-    out.exports             = read_u32(p + 0x24, little_endian);
-    out.imports             = read_u32(p + 0x28, little_endian);
-    out.end_offset          = read_u32(p + 0x2C, little_endian);
+    out.absolute_data_start = read_u32_be(p + 0x14);
+    out.local_fixups        = read_u32_be(p + 0x18);
+    out.global_fixups       = read_u32_be(p + 0x1C);
+    out.virtual_fixups      = read_u32_be(p + 0x20);
+    out.exports             = read_u32_be(p + 0x24);
+    out.imports             = read_u32_be(p + 0x28);
+    out.end_offset          = read_u32_be(p + 0x2C);
     return true;
 }
 
@@ -97,41 +80,11 @@ std::optional<PackFile> LoadPackFileFromBytes(std::vector<uint8_t> bytes,
         pf.version_string.assign(vp, n);
     }
 
-    if (pf.bytes[0x11] > 1) {
-        OutputLog::error("havok: unsupported endian flag in " + source_label);
-        return std::nullopt;
-    }
-    pf.little_endian = (pf.bytes[0x11] == 1);
-
-    // Havok 2010/2014 packfiles can have an extended header/padding
-    // between the 0x40-byte global header and the first section header.
-    // Do not assume that __classnames__ is necessarily at file offset 0x40.
-    // Locate the section tag, then the following standard 0x40-byte headers.
-    size_t section0 = std::string::npos;
-    const char* classnames_tag = "__classnames__";
-    for (size_t off = 0x40; off + 20 <= std::min<size_t>(pf.bytes.size(), 0x200);
-         off += 0x10)
+    if (!read_section_header(pf.bytes, 0x40, pf.classnames_section) ||
+        !read_section_header(pf.bytes, 0x70, pf.data_section) ||
+        !read_section_header(pf.bytes, 0xA0, pf.types_section))
     {
-        if (std::memcmp(pf.bytes.data() + off, classnames_tag,
-                        std::strlen(classnames_tag)) == 0)
-        {
-            section0 = off;
-            break;
-        }
-    }
-
-    if (section0 == std::string::npos ||
-        !read_section_header(pf.bytes, section0, pf.classnames_section,
-                             pf.little_endian) ||
-        !read_section_header(pf.bytes, section0 + 0x40, pf.types_section,
-                             pf.little_endian) ||
-        !read_section_header(pf.bytes, section0 + 0x80, pf.data_section,
-                             pf.little_endian) ||
-        pf.classnames_section.name != "__classnames__" ||
-        pf.types_section.name != "__types__" ||
-        pf.data_section.name != "__data__")
-    {
-        OutputLog::error("havok: failed to locate/read section headers ("
+        OutputLog::error("havok: failed to read section headers ("
                           + source_label + ")");
         return std::nullopt;
     }
@@ -148,7 +101,7 @@ std::optional<PackFile> LoadPackFileFromBytes(std::vector<uint8_t> bytes,
     {
         size_t i = cs_start;
         while (i + 5 < cs_end) {
-            const uint32_t hash = read_u32(pf.bytes.data() + i, pf.little_endian);
+            const uint32_t hash = read_u32_be(pf.bytes.data() + i);
             const uint8_t  sep  = pf.bytes[i + 4];
             if (sep != 0x09) {
                 break;
@@ -180,14 +133,9 @@ std::optional<PackFile> LoadPackFileFromBytes(std::vector<uint8_t> bytes,
             size_t i = vf_start + 8;
             while (i + 12 <= vf_end) {
                 VirtualFixup vf;
-                // Virtual fixup: source/data offset, destination section,
-                // then class-name offset.
-                vf.data_offset       = read_u32(pf.bytes.data() + i,
-                                                pf.little_endian);
-                vf.section_idx       = read_u32(pf.bytes.data() + i + 4,
-                                                pf.little_endian);
-                vf.classnames_offset = read_u32(pf.bytes.data() + i + 8,
-                                                pf.little_endian);
+                vf.classnames_offset = read_u32_be(pf.bytes.data() + i);
+                vf.data_offset       = read_u32_be(pf.bytes.data() + i + 4);
+                vf.section_idx       = read_u32_be(pf.bytes.data() + i + 8);
                 if (vf.classnames_offset == 0 && vf.data_offset == 0 &&
                     vf.section_idx == 0) {
                     break;
@@ -303,8 +251,12 @@ void LogClassInstanceBytes(const PackFile& pf,
         return;
     }
 
-    auto read_f32_be = [&](const uint8_t* p) {
-        return ::Havok::read_f32(p, pf.little_endian);
+    auto read_f32_be = [](const uint8_t* p) {
+        uint32_t u = (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) |
+                     (uint32_t(p[2]) << 8)  |  uint32_t(p[3]);
+        float f;
+        std::memcpy(&f, &u, sizeof(f));
+        return f;
     };
 
     const size_t data_start = pf.data_section.absolute_data_start;
@@ -388,20 +340,16 @@ void ApplyLocalFixups(PackFile& pf) {
     if (all_zero_head) i += 8;
 
     auto read_u32_be = [&](size_t off) {
-        return ::Havok::read_u32(pf.bytes.data() + off, pf.little_endian);
+        return (uint32_t(pf.bytes[off]) << 24) |
+               (uint32_t(pf.bytes[off + 1]) << 16) |
+               (uint32_t(pf.bytes[off + 2]) << 8) |
+                uint32_t(pf.bytes[off + 3]);
     };
     auto write_u32_be = [&](size_t off, uint32_t v) {
-        if (pf.little_endian) {
-            pf.bytes[off]     = uint8_t(v & 0xff);
-            pf.bytes[off + 1] = uint8_t((v >> 8) & 0xff);
-            pf.bytes[off + 2] = uint8_t((v >> 16) & 0xff);
-            pf.bytes[off + 3] = uint8_t((v >> 24) & 0xff);
-        } else {
-            pf.bytes[off]     = uint8_t((v >> 24) & 0xff);
-            pf.bytes[off + 1] = uint8_t((v >> 16) & 0xff);
-            pf.bytes[off + 2] = uint8_t((v >> 8) & 0xff);
-            pf.bytes[off + 3] = uint8_t(v & 0xff);
-        }
+        pf.bytes[off]     = uint8_t((v >> 24) & 0xff);
+        pf.bytes[off + 1] = uint8_t((v >> 16) & 0xff);
+        pf.bytes[off + 2] = uint8_t((v >> 8)  & 0xff);
+        pf.bytes[off + 3] = uint8_t( v        & 0xff);
     };
 
     size_t applied = 0;
@@ -441,13 +389,14 @@ std::vector<CollisionMesh> ExtractCollisionMeshes(const PackFile& pf) {
                 uint32_t(pf.bytes[off + 3]);
     };
     auto read_u16_be = [&](size_t off) {
-        const uint8_t* p = pf.bytes.data() + off;
-        return pf.little_endian
-            ? uint16_t(uint16_t(p[0]) | (uint16_t(p[1]) << 8))
-            : uint16_t((uint16_t(p[0]) << 8) | uint16_t(p[1]));
+        return uint16_t((uint16_t(pf.bytes[off]) << 8) |
+                        uint16_t(pf.bytes[off + 1]));
     };
     auto read_f32_be = [&](size_t off) {
-        return ::Havok::read_f32(pf.bytes.data() + off, pf.little_endian);
+        uint32_t u = read_u32_be(off);
+        float f;
+        std::memcpy(&f, &u, sizeof(f));
+        return f;
     };
 
     auto read_hk_array = [&](size_t arr_off) -> std::pair<uint32_t, uint32_t> {
@@ -522,7 +471,11 @@ ExtractCandidatePlacements(const PackFile& pf,
     const uint8_t* p = pf.bytes.data();
 
     auto read_f32_be = [&](size_t off) {
-        return ::Havok::read_f32(p + off, pf.little_endian);
+        uint32_t u = (uint32_t(p[off]) << 24) | (uint32_t(p[off + 1]) << 16) |
+                     (uint32_t(p[off + 2]) << 8)  |  uint32_t(p[off + 3]);
+        float f;
+        std::memcpy(&f, &u, sizeof(f));
+        return f;
     };
 
     for (size_t off = data_start; off + 16 <= data_end; off += 16) {
