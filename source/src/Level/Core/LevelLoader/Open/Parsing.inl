@@ -43,7 +43,25 @@ bool Open(const FlatAssetEntry& entry)
 
     loader_progress_update(18, 100, "Parsing level entries...");
     EngineLevelInfo info;
-    if (!ParseEngineLevel(bytes, info)) {
+    // Fable 2's LevelGraphicsFile fields are big-endian. Fable 3 PC
+    // LevelGraphicsFile fields are little-endian; in particular the version
+    // immediately following the 17-byte magic is stored LE. A F3 version
+    // such as 13 therefore appears as 0x0D000000 to the F2 BE parser.
+    bool is_f3_level = false;
+    if (bytes.size() >= 21 &&
+        std::memcmp(bytes.data(), "LevelGraphicsFile", 17) == 0) {
+        const uint32_t f3_version =
+            uint32_t(bytes[17]) |
+            (uint32_t(bytes[18]) << 8) |
+            (uint32_t(bytes[19]) << 16) |
+            (uint32_t(bytes[20]) << 24);
+        is_f3_level = (f3_version >= 13 && f3_version <= 32);
+    }
+
+    const bool parsed = is_f3_level
+        ? ParseF3EngineLevel(bytes, info)
+        : ParseEngineLevel(bytes, info);
+    if (!parsed) {
         OutputLog::error("parse failed for '" + entry.name + "': "
                          + info.error);
         return false;
