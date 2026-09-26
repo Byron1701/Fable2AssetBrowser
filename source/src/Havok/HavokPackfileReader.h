@@ -36,8 +36,6 @@ struct PackFile {
     std::string version_string;
     // Havok layout-rules byte 0x11: 0 = big-endian, 1 = little-endian.
     bool little_endian = false;
-    // Havok layout-rules byte 0x11: 0 = big-endian, 1 = little-endian.
-    bool little_endian = false;
 
     SectionHeader classnames_section;
     SectionHeader data_section;
