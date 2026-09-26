@@ -347,4 +347,122 @@ bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
     return true;
 }
 
+
+bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes, EngineLevelInfo& out)
+{
+    out = {};
+    constexpr char magic[] = "LevelGraphicsFile";
+    constexpr size_t ml = sizeof(magic) - 1;
+    if (bytes.size() < ml + 8 ||
+        std::memcmp(bytes.data(), magic, ml) != 0) {
+        out.error = "magic mismatch";
+        return false;
+    }
+
+    LeReader r{bytes.data(), bytes.size(), ml};
+    if (!r.u32(out.version) || !r.u32(out.entry_count)) {
+        out.error = "truncated F3 level header";
+        return false;
+    }
+    if (out.entry_count > (1u << 20)) {
+        out.error = "F3 entry count looks corrupt";
+        return false;
+    }
+
+    auto printable_cstr_at = [&](size_t off) -> bool {
+        if (off >= bytes.size()) return false;
+        size_t p = off;
+        const size_t limit = std::min(bytes.size(), off + size_t(4096));
+        while (p < limit && bytes[p] != 0) {
+            const uint8_t ch = bytes[p++];
+            if (ch < 0x20 || ch > 0x7e) return false;
+        }
+        return p < limit && bytes[p] == 0;
+    };
+    auto plausible_entry_at = [&](size_t off) -> bool {
+        if (off + 4 > bytes.size()) return false;
+        const uint32_t t = uint32_t(bytes[off]) |
+                           (uint32_t(bytes[off+1]) << 8) |
+                           (uint32_t(bytes[off+2]) << 16) |
+                           (uint32_t(bytes[off+3]) << 24);
+        if (t == 4 || t == 5 || t == 32)
+            return printable_cstr_at(off + 4);
+        if (t == 2 || t == 21) {
+            if (!printable_cstr_at(off + 4)) return false;
+            size_t p = off + 4;
+            while (p < bytes.size() && bytes[p] != 0) ++p;
+            return p < bytes.size() && printable_cstr_at(p + 1);
+        }
+        return false;
+    };
+    auto seek_next_entry = [&](size_t from) -> size_t {
+        for (size_t off = from; off + 4 <= bytes.size(); ++off)
+            if (plausible_entry_at(off)) return off;
+        return bytes.size();
+    };
+
+    out.entries.reserve(out.entry_count);
+    for (uint32_t i = 0; i < out.entry_count; ++i) {
+        EngineLevelEntry e;
+        e.offset = r.i;
+        if (!r.u32(e.type)) {
+            out.error = "truncated F3 entry";
+            return false;
+        }
+        switch (e.type) {
+        case 4:
+        case 5:
+        case 32:
+            if (!r.cstr(e.str_a)) {
+                out.error = "truncated F3 string entry";
+                return false;
+            }
+            if (e.type == 4) {
+                if (!r.u64(e.resource_key)) {
+                    out.error = "truncated F3 type-4 key";
+                    return false;
+                }
+                e.has_resource_key = true;
+            }
+            break;
+        case 2:
+            if (!r.cstr(e.str_a) || !r.cstr(e.str_b)) {
+                out.error = "truncated F3 type-2 model paths";
+                return false;
+            }
+            {
+                const size_t next = seek_next_entry(r.i);
+                if (next <= r.i || next > bytes.size()) {
+                    out.error = "could not locate end of F3 type-2 payload";
+                    return false;
+                }
+                r.i = next;
+            }
+            break;
+        case 21:
+            if (!r.cstr(e.str_a) || !r.cstr(e.str_b)) {
+                out.error = "truncated F3 type-21 paths";
+                return false;
+            }
+            {
+                const size_t next = seek_next_entry(r.i);
+                if (next <= r.i || next > bytes.size()) {
+                    out.error = "could not locate end of F3 type-21 payload";
+                    return false;
+                }
+                r.i = next;
+            }
+            break;
+        default:
+            out.error = "unsupported F3 LevelGraphicsFile entry type " +
+                        std::to_string(e.type);
+            return false;
+        }
+        e.size = r.i - e.offset;
+        out.entries.push_back(std::move(e));
+    }
+    out.ok = true;
+    return true;
+}
+
 }
