@@ -379,16 +379,30 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes, EngineLevelInfo& out)
         }
         return p < limit && bytes[p] == 0;
     };
+    auto pathlike_cstr_at = [&](size_t off) -> bool {
+        if (!printable_cstr_at(off)) return false;
+        size_t p = off;
+        while (p < bytes.size() && bytes[p] != 0) ++p;
+        if (p == off) return false;
+        std::string s(reinterpret_cast<const char*>(bytes.data()+off), p-off);
+        return s.find('.') != std::string::npos ||
+               s.find('/') != std::string::npos ||
+               s.find('\\') != std::string::npos;
+    };
     auto plausible_entry_at = [&](size_t off) -> bool {
         if (off + 4 > bytes.size()) return false;
         const uint32_t t = uint32_t(bytes[off]) |
                            (uint32_t(bytes[off+1]) << 8) |
                            (uint32_t(bytes[off+2]) << 16) |
                            (uint32_t(bytes[off+3]) << 24);
-        if (t == 4 || t == 5 || t == 32)
-            return printable_cstr_at(off + 4);
+        if (t == 4) {
+            return off + 12 <= bytes.size() &&
+                   pathlike_cstr_at(off + 4);
+        }
+        if (t == 5 || t == 32)
+            return pathlike_cstr_at(off + 4);
         if (t == 2 || t == 21) {
-            if (!printable_cstr_at(off + 4)) return false;
+            if (!pathlike_cstr_at(off + 4)) return false;
             size_t p = off + 4;
             while (p < bytes.size() && bytes[p] != 0) ++p;
             return p < bytes.size() && printable_cstr_at(p + 1);
