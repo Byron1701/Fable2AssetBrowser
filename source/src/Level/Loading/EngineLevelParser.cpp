@@ -414,8 +414,8 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes, EngineLevelInfo& out)
             block.instances.reserve(instance_count);
             for (uint32_t n = 0; n < instance_count; ++n) {
                 // The validated F3 PC record is 92 bytes:
-                // flags[3], hash[u64], pad[1], float[20].
-                if (r.i + 92 > bytes.size()) {
+                // flags[3], hash[u64], float[20].
+                if (r.i + 91 > bytes.size()) {
                     OutputLog::warn("F3 type-2 placement block is truncated; "
                                     "continuing without remaining optional placements");
                     break;
@@ -424,14 +424,13 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes, EngineLevelInfo& out)
                 PropInstance inst;
                 inst.record_file_offset = static_cast<uint32_t>(r.i);
                 inst.count_file_offset = count_off;
-                inst.record_size = 92;
+                inst.record_size = 91;
                 inst.lev_rec_kind = 1;
 
                 if (!r.u8(inst.flags[0]) ||
                     !r.u8(inst.flags[1]) ||
                     !r.u8(inst.flags[2]) ||
-                    !r.u64(inst.hash) ||
-                    !r.skip(1)) {
+                    !r.u64(inst.hash)) {
                     OutputLog::warn("F3 type-2 placement record is truncated; "
                                     "continuing without remaining optional placements");
                     break;
