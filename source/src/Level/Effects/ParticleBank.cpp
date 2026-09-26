@@ -27,12 +27,19 @@ struct Reader {
     size_t n;
     size_t o = 0;
     bool bad = false;
+    bool little_endian = false;
 
     bool have(size_t k) const { return o + k <= n; }
     uint32_t u32() {
         if (!have(4)) { bad = true; return 0; }
-        uint32_t v = (uint32_t(p[o]) << 24) | (uint32_t(p[o + 1]) << 16) |
-                     (uint32_t(p[o + 2]) << 8) | uint32_t(p[o + 3]);
+        uint32_t v;
+        if (little_endian) {
+            v = uint32_t(p[o]) | (uint32_t(p[o + 1]) << 8) |
+                (uint32_t(p[o + 2]) << 16) | (uint32_t(p[o + 3]) << 24);
+        } else {
+            v = (uint32_t(p[o]) << 24) | (uint32_t(p[o + 1]) << 16) |
+                 (uint32_t(p[o + 2]) << 8) | uint32_t(p[o + 3]);
+        }
         o += 4; return v;
     }
     float f32() {
@@ -47,6 +54,10 @@ struct Reader {
 
 uint32_t peek_u32(const Reader& r, size_t at) {
     if (at + 4 > r.n) return 0;
+    if (r.little_endian) {
+        return uint32_t(r.p[at]) | (uint32_t(r.p[at + 1]) << 8) |
+               (uint32_t(r.p[at + 2]) << 16) | (uint32_t(r.p[at + 3]) << 24);
+    }
     return (uint32_t(r.p[at]) << 24) | (uint32_t(r.p[at + 1]) << 16) |
            (uint32_t(r.p[at + 2]) << 8) | uint32_t(r.p[at + 3]);
 }
@@ -368,6 +379,18 @@ bool ParseParticleBank(const std::vector<uint8_t>& bytes, Bank& out) {
         out.error = "bad magic"; return false;
     }
     r.o = 16;
+    // Fable 2 particle banks are big-endian; Fable 3 PC banks are little-endian.
+    // Detect the byte order from the version field before parsing the rest.
+    const uint32_t be_version = (uint32_t(r.p[16]) << 24) |
+                                (uint32_t(r.p[17]) << 16) |
+                                (uint32_t(r.p[18]) << 8) | uint32_t(r.p[19]);
+    const uint32_t le_version = uint32_t(r.p[16]) |
+                                (uint32_t(r.p[17]) << 8) |
+                                (uint32_t(r.p[18]) << 16) |
+                                (uint32_t(r.p[19]) << 24);
+    if (be_version <= 0x1000u) r.little_endian = false;
+    else if (le_version <= 0x1000u) r.little_endian = true;
+    else { out.error = "unsupported particle bank version"; return false; }
     if (peek_u32(r, r.o) == kBaad) { r.skip(4); }
     out.version = r.u32();
 
