@@ -2,6 +2,8 @@
 using detail::GdbView;
 using detail::ReadBeF32;
 using detail::ReadBeU32;
+using detail::ReadGdbF32;
+using detail::ReadGdbU32;
 using detail::kHashParent;
 using detail::kHashVecX;
 using detail::kHashVecY;
