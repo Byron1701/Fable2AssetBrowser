@@ -1,6 +1,26 @@
     if (bail_if_cancelled("pre-heightfield")) return false;
 
-    if (!res.ehf_path.empty() || !res.ghf_path.empty()) {
+    const std::string level_name_lower = [&]() {
+        std::string s = entry.name;
+        std::transform(s.begin(), s.end(), s.begin(),
+                       [](unsigned char c) { return (char)std::tolower(c); });
+        return s;
+    }();
+    // Fable 3 also contains UI map levels (for example
+    // MistpeakValleyMap). They use terrain resources for the miniature
+    // world-map presentation but are not gameplay terrain levels. In
+    // particular they can have an EHF/GHF without the sibling terrain LMP.
+    // Do not send these heavyweight preview terrains through the normal
+    // gameplay TerrainMesh path.
+    const bool is_ui_map_level =
+        level_name_lower.size() >= 3 &&
+        level_name_lower.compare(level_name_lower.size() - 3, 3, "map") == 0;
+    if (is_ui_map_level) {
+        OutputLog::info("terrain: skipping UI map level '" + entry.name +
+                        "' (miniature world-map terrain)");
+    }
+
+    if (!is_ui_map_level && (!res.ehf_path.empty() || !res.ghf_path.empty())) {
         HeightfieldFiles hf;
         loader_progress_update(32, 100, "Loading heightfield files...");
         if (!LoadHeightfieldFiles(res.ehf_path, res.ghf_path,
