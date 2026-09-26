@@ -384,20 +384,6 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes, EngineLevelInfo& out)
 
         switch (e.type) {
         case 2: {
-            // Fable 3 PC type-2 blocks:
-            //   cstring model path
-            //   cstring (empty)
-            //   cstring (empty)
-            //   u32 instance count
-            //   instance[count]:
-            //       3 bytes flags
-            //       u64 entity/model hash
-            //       1 byte padding
-            //       20 x float32 LE
-            //
-            // The instance is therefore 92 bytes. This is deliberately
-            // decoded directly; scanning for the next entry inside this
-            // binary payload can mistake arbitrary float bytes for a type.
             PropBlock block;
             block.offset = e.offset;
             block.type = e.type;
@@ -405,27 +391,36 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes, EngineLevelInfo& out)
             if (!r.cstr(block.model_path) ||
                 !r.cstr(block.shadow_model_path) ||
                 !r.cstr(block.lod_model_path)) {
-                out.error = "truncated F3 type-2 model paths";
-                return false;
+                OutputLog::warn("F3 type-2 placement block has truncated model-path data; "
+                                "stopping optional placement parsing");
+                out.entries.push_back(e);
+                out.ok = true;
+                return true;
             }
-            block.extra_model_path.clear();
 
             e.str_a = block.model_path;
             e.str_b = block.lod_model_path;
 
             const uint32_t count_off = static_cast<uint32_t>(r.i);
             uint32_t instance_count = 0;
-            if (!r.u32(instance_count)) {
-                out.error = "truncated F3 type-2 instance count";
-                return false;
-            }
-            if (instance_count > 100000) {
-                out.error = "F3 type-2 instance count looks corrupt";
-                return false;
+            if (!r.u32(instance_count) || instance_count > 100000) {
+                OutputLog::warn("F3 type-2 placement block has invalid instance count; "
+                                "stopping optional placement parsing");
+                out.entries.push_back(e);
+                out.ok = true;
+                return true;
             }
 
             block.instances.reserve(instance_count);
             for (uint32_t n = 0; n < instance_count; ++n) {
+                // The validated F3 PC record is 92 bytes:
+                // flags[3], hash[u64], pad[1], float[20].
+                if (r.i + 92 > bytes.size()) {
+                    OutputLog::warn("F3 type-2 placement block is truncated; "
+                                    "continuing without remaining optional placements");
+                    break;
+                }
+
                 PropInstance inst;
                 inst.record_file_offset = static_cast<uint32_t>(r.i);
                 inst.count_file_offset = count_off;
@@ -437,23 +432,31 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes, EngineLevelInfo& out)
                     !r.u8(inst.flags[2]) ||
                     !r.u64(inst.hash) ||
                     !r.skip(1)) {
-                    out.error = "truncated F3 type-2 instance header";
-                    return false;
+                    OutputLog::warn("F3 type-2 placement record is truncated; "
+                                    "continuing without remaining optional placements");
+                    break;
                 }
 
                 inst.pos_file_offset = static_cast<uint32_t>(r.i);
+                bool valid_record = true;
                 for (float& v : inst.values) {
                     if (!r.f32(v)) {
-                        out.error = "truncated F3 type-2 instance transform";
-                        return false;
+                        valid_record = false;
+                        break;
                     }
+                }
+                if (!valid_record) {
+                    OutputLog::warn("F3 type-2 placement transform is truncated; "
+                                    "continuing without remaining optional placements");
+                    break;
                 }
 
                 inst.has_full_transform = true;
                 block.instances.push_back(inst);
             }
 
-            out.prop_blocks.push_back(std::move(block));
+            if (!block.instances.empty())
+                out.prop_blocks.push_back(std::move(block));
             break;
         }
 
@@ -513,15 +516,18 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes, EngineLevelInfo& out)
             }
             break;
 
-        default:
-            {
-                std::ostringstream os;
-                os << "unsupported F3 LevelGraphicsFile entry type "
-                   << e.type << " at offset 0x"
-                   << std::hex << e.offset << std::dec;
-                out.error = os.str();
-            }
-            return false;
+        default: {
+            std::ostringstream os;
+            os << "F3 LevelGraphicsFile contains unsupported optional entry type "
+               << e.type << " at offset 0x" << std::hex << e.offset;
+            OutputLog::warn(os.str());
+            // Placement/resource types not understood here must not prevent
+            // terrain loading. F3 static-prop definitions are supplied by
+            // globals.gdb, while terrain resources are handled separately.
+            out.entries.push_back(e);
+            out.ok = true;
+            return true;
+        }
         }
 
         e.size = r.i - e.offset;
