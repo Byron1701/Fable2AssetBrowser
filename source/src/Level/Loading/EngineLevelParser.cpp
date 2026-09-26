@@ -369,61 +369,94 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes, EngineLevelInfo& out)
         return false;
     }
 
-    auto printable_cstr_at = [&](size_t off) -> bool {
-        if (off >= bytes.size()) return false;
-        size_t p = off;
-        const size_t limit = std::min(bytes.size(), off + size_t(4096));
-        while (p < limit && bytes[p] != 0) {
-            const uint8_t ch = bytes[p++];
-            if (ch < 0x20 || ch > 0x7e) return false;
-        }
-        return p < limit && bytes[p] == 0;
-    };
-    auto pathlike_cstr_at = [&](size_t off) -> bool {
-        if (!printable_cstr_at(off)) return false;
-        size_t p = off;
-        while (p < bytes.size() && bytes[p] != 0) ++p;
-        if (p == off) return false;
-        std::string s(reinterpret_cast<const char*>(bytes.data()+off), p-off);
-        return s.find('.') != std::string::npos ||
-               s.find('/') != std::string::npos ||
-               s.find('\\') != std::string::npos;
-    };
-    auto plausible_entry_at = [&](size_t off) -> bool {
-        if (off + 4 > bytes.size()) return false;
-        const uint32_t t = uint32_t(bytes[off]) |
-                           (uint32_t(bytes[off+1]) << 8) |
-                           (uint32_t(bytes[off+2]) << 16) |
-                           (uint32_t(bytes[off+3]) << 24);
-        if (t == 4) {
-            return off + 12 <= bytes.size() &&
-                   pathlike_cstr_at(off + 4);
-        }
-        if (t == 5 || t == 32)
-            return pathlike_cstr_at(off + 4);
-        if (t == 2 || t == 21) {
-            if (!pathlike_cstr_at(off + 4)) return false;
-            size_t p = off + 4;
-            while (p < bytes.size() && bytes[p] != 0) ++p;
-            return p < bytes.size() && printable_cstr_at(p + 1);
-        }
-        return false;
-    };
-    auto seek_next_entry = [&](size_t from) -> size_t {
-        for (size_t off = from; off + 4 <= bytes.size(); ++off)
-            if (plausible_entry_at(off)) return off;
-        return bytes.size();
-    };
-
     out.entries.reserve(out.entry_count);
+
     for (uint32_t i = 0; i < out.entry_count; ++i) {
         EngineLevelEntry e;
         e.offset = r.i;
+
         if (!r.u32(e.type)) {
-            out.error = "truncated F3 entry";
+            std::ostringstream os;
+            os << "truncated F3 entry " << i << " of " << out.entry_count;
+            out.error = os.str();
             return false;
         }
+
         switch (e.type) {
+        case 2: {
+            // Fable 3 PC type-2 blocks:
+            //   cstring model path
+            //   cstring (empty)
+            //   cstring (empty)
+            //   u32 instance count
+            //   instance[count]:
+            //       3 bytes flags
+            //       u64 entity/model hash
+            //       1 byte padding
+            //       20 x float32 LE
+            //
+            // The instance is therefore 92 bytes. This is deliberately
+            // decoded directly; scanning for the next entry inside this
+            // binary payload can mistake arbitrary float bytes for a type.
+            PropBlock block;
+            block.offset = e.offset;
+            block.type = e.type;
+
+            if (!r.cstr(block.model_path) ||
+                !r.cstr(block.shadow_model_path) ||
+                !r.cstr(block.lod_model_path)) {
+                out.error = "truncated F3 type-2 model paths";
+                return false;
+            }
+            block.extra_model_path.clear();
+
+            e.str_a = block.model_path;
+            e.str_b = block.lod_model_path;
+
+            const uint32_t count_off = static_cast<uint32_t>(r.i);
+            uint32_t instance_count = 0;
+            if (!r.u32(instance_count)) {
+                out.error = "truncated F3 type-2 instance count";
+                return false;
+            }
+            if (instance_count > 100000) {
+                out.error = "F3 type-2 instance count looks corrupt";
+                return false;
+            }
+
+            block.instances.reserve(instance_count);
+            for (uint32_t n = 0; n < instance_count; ++n) {
+                PropInstance inst;
+                inst.record_file_offset = static_cast<uint32_t>(r.i);
+                inst.count_file_offset = count_off;
+                inst.record_size = 92;
+                inst.lev_rec_kind = 1;
+
+                if (!r.u8(inst.flags[0]) ||
+                    !r.u8(inst.flags[1]) ||
+                    !r.u8(inst.flags[2]) ||
+                    !r.u64(inst.hash) ||
+                    !r.skip(1)) {
+                    out.error = "truncated F3 type-2 instance header";
+                    return false;
+                }
+
+                inst.pos_file_offset = static_cast<uint32_t>(r.i);
+                for (float& v : inst.values) {
+                    if (!r.f32(v)) {
+                        out.error = "truncated F3 type-2 instance transform";
+                        return false;
+                    }
+                }
+
+                inst.has_full_transform = true;
+                block.instances.push_back(inst);
+            }
+
+            out.prop_blocks.push_back(std::move(block));
+            break;
+        }
+
         case 4:
         case 5:
         case 32:
@@ -439,44 +472,63 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes, EngineLevelInfo& out)
                 e.has_resource_key = true;
             }
             break;
-        case 2:
-            if (!r.cstr(e.str_a) || !r.cstr(e.str_b)) {
-                out.error = "truncated F3 type-2 model paths";
-                return false;
-            }
-            {
-                const size_t next = seek_next_entry(r.i);
-                if (next <= r.i || next > bytes.size()) {
-                    out.error = "could not locate end of F3 type-2 payload";
-                    return false;
-                }
-                r.i = next;
-            }
-            break;
+
         case 21:
+            // Type-21 has a different F3 layout from the F2 parser. Do not
+            // interpret it as an F2 placement record. The exact payload can
+            // be decoded independently; for the terrain/resource pipeline,
+            // preserve its two leading strings and skip its payload by using
+            // the next validated entry boundary.
             if (!r.cstr(e.str_a) || !r.cstr(e.str_b)) {
                 out.error = "truncated F3 type-21 paths";
                 return false;
             }
             {
-                const size_t next = seek_next_entry(r.i);
-                if (next <= r.i || next > bytes.size()) {
+                const size_t payload_start = r.i;
+                size_t next = bytes.size();
+                for (size_t off = payload_start; off + 4 <= bytes.size(); ++off) {
+                    const uint32_t t =
+                        uint32_t(bytes[off]) |
+                        (uint32_t(bytes[off + 1]) << 8) |
+                        (uint32_t(bytes[off + 2]) << 16) |
+                        (uint32_t(bytes[off + 3]) << 24);
+                    if (t != 2 && t != 4 && t != 5 && t != 21 && t != 32)
+                        continue;
+                    if (off + 5 > bytes.size()) continue;
+                    size_t p = off + 4;
+                    while (p < bytes.size() && bytes[p] != 0) {
+                        const uint8_t ch = bytes[p++];
+                        if (ch < 0x20 || ch > 0x7e) break;
+                    }
+                    if (p < bytes.size() && bytes[p] == 0) {
+                        next = off;
+                        break;
+                    }
+                }
+                if (next <= payload_start || next > bytes.size()) {
                     out.error = "could not locate end of F3 type-21 payload";
                     return false;
                 }
                 r.i = next;
             }
             break;
+
         default:
-            out.error = "unsupported F3 LevelGraphicsFile entry type " +
-                        std::to_string(e.type);
+            {
+                std::ostringstream os;
+                os << "unsupported F3 LevelGraphicsFile entry type "
+                   << e.type << " at offset 0x"
+                   << std::hex << e.offset << std::dec;
+                out.error = os.str();
+            }
             return false;
         }
+
         e.size = r.i - e.offset;
         out.entries.push_back(std::move(e));
     }
+
     out.ok = true;
     return true;
 }
-
 }
