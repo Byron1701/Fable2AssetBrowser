@@ -91,7 +91,7 @@ std::optional<PackFile> LoadPackFileFromBytes(std::vector<uint8_t> bytes,
 
     const auto& cs = pf.classnames_section;
     const size_t cs_start = cs.absolute_data_start;
-    const size_t cs_end   = cs_start + cs.local_fixups;
+    // Havok section offsets are relative to absolute_data_start;\n    // local_fixups is the start of the fixup table, not the section size.\n    // The classnames section itself ends at end_offset.\n    const size_t cs_end   = cs_start + cs.end_offset;
     if (cs_end > pf.bytes.size()) {
         OutputLog::error("havok: classnames section past EOF ("
                           + source_label + ")");
