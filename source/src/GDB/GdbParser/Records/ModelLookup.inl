@@ -34,7 +34,7 @@ bool LookupModelPathHashes(
     uint32_t parent_hash = 0;
     size_t parent_slot = 0;
     if (view.findLocal(record, kHashParent, 6, parent_slot, nullptr)) {
-        parent_hash = ReadBeU32(bytes.data() + parent_slot);
+        parent_hash = ReadGdbU32(bytes, bytes.data() + parent_slot);
         if (out_parent_hash) *out_parent_hash = parent_hash;
     }
 
