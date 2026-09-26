@@ -12,7 +12,7 @@ bool TryReadModelPathHashField(const GdbView& view,
     }
     if (path_hash_type != 4 && path_hash_type != 3) return false;
 
-    out_hash = ReadBeU32(view.bytes.data() + path_hash_slot);
+    out_hash = ReadGdbU32(view.bytes, view.bytes.data() + path_hash_slot);
     return out_hash != 0 && out_hash != 0x811C9DC5u;
 }
 
@@ -29,7 +29,7 @@ bool TryReadInheritedHashField(const GdbView& view,
     }
 
     if (type != 3 && type != 4 && type != 6) return false;
-    out_hash = ReadBeU32(view.bytes.data() + slot);
+    out_hash = ReadGdbU32(view.bytes, view.bytes.data() + slot);
     return out_hash != 0 && out_hash != 0x811C9DC5u;
 }
 
@@ -45,7 +45,7 @@ bool TryReadStaticMeshModelPathHash(const GdbView& view,
     }
 
     const uint32_t model_resource_hash =
-        ReadBeU32(view.bytes.data() + model_slot);
+        ReadGdbU32(view.bytes, view.bytes.data() + model_slot);
     size_t model_resource_record = 0;
     if (!view.lookup(model_resource_hash, model_resource_record)) return false;
 
@@ -66,19 +66,19 @@ bool TryReadStaticMultipleSlotModelPathHash(const GdbView& view,
     const size_t hashes = sch + 4;
     const size_t descs = hashes + size_t(n) * 4;
     for (uint32_t i = 0; i < n; ++i) {
-        if (ReadBeU32(view.bytes.data() + hashes + size_t(i) * 4) !=
+        if (ReadGdbU32(view.bytes, view.bytes.data() + hashes + size_t(i) * 4) !=
             slot_hash) {
             continue;
         }
 
         const uint32_t desc =
-            ReadBeU32(view.bytes.data() + descs + size_t(i) * 4);
+            ReadGdbU32(view.bytes, view.bytes.data() + descs + size_t(i) * 4);
         if (uint8_t(desc >> 24) != 6) continue;
 
         const size_t item_slot = list_record + 4 + size_t(i) * 4;
         if (item_slot + 4 > view.body_end) return false;
 
-        const uint32_t item_hash = ReadBeU32(view.bytes.data() + item_slot);
+        const uint32_t item_hash = ReadGdbU32(view.bytes, view.bytes.data() + item_slot);
         if (item_hash == 0) continue;
 
         size_t item_record = 0;
@@ -107,7 +107,7 @@ bool TryReadStaticMultipleFallbackModelPathHash(const GdbView& view,
     const size_t descs = hashes + size_t(n) * 4;
     for (uint32_t i = 0; i < n; ++i) {
         const uint32_t field_hash =
-            ReadBeU32(view.bytes.data() + hashes + size_t(i) * 4);
+            ReadGdbU32(view.bytes, view.bytes.data() + hashes + size_t(i) * 4);
         if (field_hash == kHashParent ||
             field_hash == kHashStaticMultipleModelSlotA ||
             field_hash == kHashStaticMultipleModelSlotD) {
@@ -115,13 +115,13 @@ bool TryReadStaticMultipleFallbackModelPathHash(const GdbView& view,
         }
 
         const uint32_t desc =
-            ReadBeU32(view.bytes.data() + descs + size_t(i) * 4);
+            ReadGdbU32(view.bytes, view.bytes.data() + descs + size_t(i) * 4);
         if (uint8_t(desc >> 24) != 6) continue;
 
         const size_t item_slot = list_record + 4 + size_t(i) * 4;
         if (item_slot + 4 > view.body_end) return false;
 
-        const uint32_t item_hash = ReadBeU32(view.bytes.data() + item_slot);
+        const uint32_t item_hash = ReadGdbU32(view.bytes, view.bytes.data() + item_slot);
         if (item_hash == 0) continue;
 
         size_t item_record = 0;
@@ -149,7 +149,7 @@ bool TryReadStaticMultipleModelPathHash(const GdbView& view,
     }
 
     const uint32_t component_hash =
-        ReadBeU32(view.bytes.data() + component_slot);
+        ReadGdbU32(view.bytes, view.bytes.data() + component_slot);
     size_t component_record = 0;
     if (!view.lookup(component_hash, component_record)) return false;
 
@@ -159,7 +159,7 @@ bool TryReadStaticMultipleModelPathHash(const GdbView& view,
         return false;
     }
 
-    const uint32_t list_hash = ReadBeU32(view.bytes.data() + list_slot);
+    const uint32_t list_hash = ReadGdbU32(view.bytes, view.bytes.data() + list_slot);
     size_t list_record = 0;
     if (!view.lookup(list_hash, list_record)) return false;
 
