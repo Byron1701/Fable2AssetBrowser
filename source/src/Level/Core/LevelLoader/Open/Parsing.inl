@@ -43,7 +43,16 @@ bool Open(const FlatAssetEntry& entry)
 
     loader_progress_update(18, 100, "Parsing level entries...");
     EngineLevelInfo info;
-    if (!ParseEngineLevel(bytes, info)) {
+    bool f3_level = false;
+    if (bytes.size() >= 21 && std::memcmp(bytes.data(), "LevelGraphicsFile", 17) == 0) {
+        const uint32_t le_version = uint32_t(bytes[17]) | (uint32_t(bytes[18]) << 8) |
+                                    (uint32_t(bytes[19]) << 16) | (uint32_t(bytes[20]) << 24);
+        f3_level = le_version > 0 && le_version < 100;
+    }
+    const bool parsed_level = f3_level
+        ? ParseF3EngineLevel(bytes, info)
+        : ParseEngineLevel(bytes, info);
+    if (!parsed_level) {
         OutputLog::error("parse failed for '" + entry.name + "': "
                          + info.error);
         return false;
