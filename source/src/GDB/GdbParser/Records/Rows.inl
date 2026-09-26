@@ -15,7 +15,7 @@ std::vector<RecordRow> Build010RecordRows(
     rows.reserve(view.count);
     for (uint32_t i = 0; i < view.count; ++i) {
         const uint32_t hash =
-            ReadBeU32(bytes.data() + view.hash_base + size_t(i) * 4);
+            ReadGdbU32(bytes, bytes.data() + view.hash_base + size_t(i) * 4);
         if (i >= view.record_data_offsets.size()) break;
         const size_t record = view.record_data_offsets[i];
 
@@ -26,7 +26,7 @@ std::vector<RecordRow> Build010RecordRows(
 
         size_t parent_slot = 0;
         if (view.findLocal(record, kHashParent, 6, parent_slot, nullptr)) {
-            row.parent_hash = ReadBeU32(bytes.data() + parent_slot);
+            row.parent_hash = ReadGdbU32(bytes, bytes.data() + parent_slot);
         }
 
         row.model_path_hashes = CollectModelPathHashesForRecord(view, record);
