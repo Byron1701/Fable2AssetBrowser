@@ -347,4 +347,50 @@ bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
     return true;
 }
 
+
+bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes, EngineLevelInfo& out)
+{
+    out = {};
+    constexpr char magic[] = "LevelGraphicsFile";
+    constexpr size_t ml = sizeof(magic)-1;
+    if (bytes.size() < ml+8 || std::memcmp(bytes.data(), magic, ml) != 0) {
+        out.error = "magic mismatch"; return false;
+    }
+    LeReader r{bytes.data(),bytes.size(),ml};
+    if(!r.u32(out.version) || !r.u32(out.entry_count)) { out.error="truncated F3 level header"; return false; }
+    if(out.entry_count > (1u<<20)) { out.error="F3 entry count looks corrupt"; return false; }
+    out.entries.reserve(out.entry_count);
+    for(uint32_t i=0;i<out.entry_count;++i) {
+        EngineLevelEntry e; e.offset=r.i;
+        if(!r.u32(e.type)){out.error="truncated F3 entry";return false;}
+        switch(e.type) {
+        case 4:
+        case 5:
+        case 32:
+            if(!r.cstr(e.str_a)){out.error="truncated F3 string entry";return false;}
+            if(e.type==4){if(!r.u64(e.resource_key)){out.error="truncated F3 type-4 key";return false;}e.has_resource_key=true;}
+            break;
+        case 2: {
+            PropBlock b; b.offset=e.offset;b.type=e.type;
+            if(!r.cstr(b.model_path)||!r.cstr(b.shadow_model_path)||!r.cstr(b.lod_model_path)||!r.cstr(b.extra_model_path)){out.error="truncated F3 type-2 paths";return false;}
+            e.str_a=b.model_path;e.str_b=b.lod_model_path;
+            uint32_t n=0;if(!r.u32(n)||n>100000){out.error="invalid F3 type-2 count";return false;}
+            b.instances.reserve(n);
+            for(uint32_t j=0;j<n;++j){PropInstance p;p.record_file_offset=uint32_t(r.i);p.record_size=91;
+                if(!r.u8(p.flags[0])||!r.u8(p.flags[1])||!r.u8(p.flags[2])||!r.u64(p.hash)){out.error="truncated F3 prop";return false;}
+                p.pos_file_offset=uint32_t(r.i);p.lev_rec_kind=1;
+                for(float& v:p.values)if(!r.f32(v)){out.error="truncated F3 prop transform";return false;}
+                b.instances.push_back(p);
+            }
+            out.prop_blocks.push_back(std::move(b)); break;
+        }
+        default:
+            out.error="unsupported F3 LevelGraphicsFile entry type "+std::to_string(e.type)+" at 0x"+[] (size_t v){std::ostringstream s;s<<std::hex<<v;return s.str();}(e.offset);
+            return false;
+        }
+        e.size=r.i-e.offset; out.entries.push_back(std::move(e));
+    }
+    out.ok=true; return true;
+}
+
 }
