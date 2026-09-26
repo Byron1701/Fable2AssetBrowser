@@ -16,7 +16,7 @@ bool TryTransformRecord(const GdbView& view,
                              pos_slot, pos_owner, nullptr)) {
         return false;
     }
-    const uint32_t pos_hash = ReadBeU32(view.bytes.data() + pos_slot);
+    const uint32_t pos_hash = ReadGdbU32(view.bytes, view.bytes.data() + pos_slot);
     if (!view.readVec3Ref(pos_hash, x, y, z, nullptr, nullptr, nullptr,
                           out_pos_slots)) return false;
     if (lenient) {
@@ -28,7 +28,7 @@ bool TryTransformRecord(const GdbView& view,
     size_t rot_slot = 0;
     float rx = 0.0f, ry = 0.0f, rz = 0.0f;
     if (view.findLocal(pos_owner, kHashRotation, 6, rot_slot, nullptr)) {
-        const uint32_t rot_hash = ReadBeU32(view.bytes.data() + rot_slot);
+        const uint32_t rot_hash = ReadGdbU32(view.bytes, view.bytes.data() + rot_slot);
         size_t rslots[3] = {0, 0, 0};
         if (view.readRotationVec3Ref(rot_hash, rx, ry, rz, rslots)) {
             if (Finite3(rx, ry, rz)) {
@@ -67,7 +67,7 @@ bool TryComponentTransformField(const GdbView& view,
     }
 
     const uint32_t transform_hash =
-        ReadBeU32(view.bytes.data() + transform_slot);
+        ReadGdbU32(view.bytes, view.bytes.data() + transform_slot);
     size_t transform_record = 0;
     if (!view.lookup(transform_hash, transform_record)) return false;
     return TryTransformRecord(view, transform_record, x, y, z,
