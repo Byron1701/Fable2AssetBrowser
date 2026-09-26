@@ -13,8 +13,8 @@ namespace Havok {
 
 namespace {
 
-constexpr size_t kHeaderSize        = 0x40;
-constexpr size_t kSectionHeaderSize = 0x40;
+constexpr size_t kHeaderSize          = 0x40;
+constexpr size_t kSectionHeaderDataSize = 0x30;
 
 uint32_t read_u32_be(const uint8_t* p) {
     return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) |
@@ -41,7 +41,7 @@ bool read_section_header(const std::vector<uint8_t>& bytes,
                          size_t offset, SectionHeader& out,
                          bool little_endian)
 {
-    if (offset + kSectionHeaderSize > bytes.size()) return false;
+    if (offset + kSectionHeaderDataSize > bytes.size()) return false;
     const uint8_t* p = bytes.data() + offset;
     char name[21] = {0};
     std::memcpy(name, p, 20);
@@ -103,16 +103,52 @@ std::optional<PackFile> LoadPackFileFromBytes(std::vector<uint8_t> bytes,
     }
     pf.little_endian = (pf.bytes[0x11] == 1);
 
-    // F3 PC uses the standard 0x40-byte Havok section headers:
-    // __classnames__ at 0x40, __types__ at 0x80, __data__ at 0xC0.
-    if (!read_section_header(pf.bytes, 0x40, pf.classnames_section,
-                             pf.little_endian) ||
-        !read_section_header(pf.bytes, 0x80, pf.types_section,
-                             pf.little_endian) ||
-        !read_section_header(pf.bytes, 0xC0, pf.data_section,
-                             pf.little_endian))
-    {
-        OutputLog::error("havok: failed to read section headers ("
+    // Havok has shipped both 0x30-byte and 0x40-byte section-header
+    // layouts, and some packfiles have a 16-byte extension between the
+    // 0x40-byte global header and the first section header.  F3 assets
+    // should be decoded from the actual section tags rather than assuming
+    // one particular variant.
+    bool sections_found = false;
+    const size_t section_bases[] = {0x40, 0x50};
+    const size_t section_strides[] = {0x30, 0x40};
+
+    for (size_t base : section_bases) {
+        for (size_t stride : section_strides) {
+            if (base + 2 * stride + kSectionHeaderDataSize > pf.bytes.size()) {
+                continue;
+            }
+
+            SectionHeader classnames;
+            SectionHeader types;
+            SectionHeader data;
+            if (!read_section_header(pf.bytes, base, classnames, pf.little_endian) ||
+                !read_section_header(pf.bytes, base + stride, types, pf.little_endian) ||
+                !read_section_header(pf.bytes, base + 2 * stride, data, pf.little_endian)) {
+                continue;
+            }
+
+            if (classnames.name != "__classnames__" ||
+                types.name != "__types__" ||
+                data.name != "__data__") {
+                continue;
+            }
+
+            pf.classnames_section = std::move(classnames);
+            pf.types_section = std::move(types);
+            pf.data_section = std::move(data);
+            sections_found = true;
+
+            std::ostringstream os;
+            os << "havok: section layout base=0x" << std::hex
+               << base << " stride=0x" << stride << std::dec;
+            OutputLog::info(os.str());
+            break;
+        }
+        if (sections_found) break;
+    }
+
+    if (!sections_found) {
+        OutputLog::error("havok: failed to locate/read section headers ("
                           + source_label + ")");
         return std::nullopt;
     }
