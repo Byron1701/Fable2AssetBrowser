@@ -21,21 +21,43 @@ uint32_t read_u32_be(const uint8_t* p) {
            (uint32_t(p[2]) << 8)  |  uint32_t(p[3]);
 }
 
+uint32_t read_u32_le(const uint8_t* p) {
+    return (uint32_t(p[3]) << 24) | (uint32_t(p[2]) << 16) |
+           (uint32_t(p[1]) << 8)  |  uint32_t(p[0]);
+}
+
+uint32_t read_u32(const uint8_t* p, bool little_endian) {
+    return little_endian ? read_u32_le(p) : read_u32_be(p);
+}
+
+uint16_t read_u16(const uint8_t* p, bool little_endian) {
+    return little_endian
+        ? uint16_t(uint16_t(p[1]) << 8 | uint16_t(p[0]))
+        : uint16_t(uint16_t(p[0]) << 8 | uint16_t(p[1]));
+}
+
+float read_f32(const uint8_t* p, bool little_endian) {
+    uint32_t u = read_u32(p, little_endian);
+    float f;
+    std::memcpy(&f, &u, sizeof(f));
+    return f;
+}
+
 bool read_section_header(const std::vector<uint8_t>& bytes,
-                         size_t offset, SectionHeader& out)
+                         size_t offset, SectionHeader& out, bool little_endian)
 {
     if (offset + kSectionHeaderSize > bytes.size()) return false;
     const uint8_t* p = bytes.data() + offset;
     char name[17] = {0};
     std::memcpy(name, p, 16);
     out.name = std::string(name);
-    out.absolute_data_start = read_u32_be(p + 0x14);
-    out.local_fixups        = read_u32_be(p + 0x18);
-    out.global_fixups       = read_u32_be(p + 0x1C);
-    out.virtual_fixups      = read_u32_be(p + 0x20);
-    out.exports             = read_u32_be(p + 0x24);
-    out.imports             = read_u32_be(p + 0x28);
-    out.end_offset          = read_u32_be(p + 0x2C);
+    out.absolute_data_start = read_u32(p + 0x14, little_endian);
+    out.local_fixups        = read_u32(p + 0x18, little_endian);
+    out.global_fixups       = read_u32(p + 0x1C, little_endian);
+    out.virtual_fixups      = read_u32(p + 0x20, little_endian);
+    out.exports             = read_u32(p + 0x24, little_endian);
+    out.imports             = read_u32(p + 0x28, little_endian);
+    out.end_offset          = read_u32(p + 0x2C, little_endian);
     return true;
 }
 
@@ -72,6 +94,12 @@ std::optional<PackFile> LoadPackFileFromBytes(std::vector<uint8_t> bytes,
         return std::nullopt;
     }
 
+    if (pf.bytes[0x11] > 1) {
+        OutputLog::error("havok: unsupported endian flag in " + source_label);
+        return std::nullopt;
+    }
+    pf.little_endian = (pf.bytes[0x11] == 1);
+
     {
         const char* vp = reinterpret_cast<const char*>(pf.bytes.data() + 0x20);
         const size_t maxlen = std::min<size_t>(16, pf.bytes.size() - 0x20);
@@ -80,9 +108,9 @@ std::optional<PackFile> LoadPackFileFromBytes(std::vector<uint8_t> bytes,
         pf.version_string.assign(vp, n);
     }
 
-    if (!read_section_header(pf.bytes, 0x40, pf.classnames_section) ||
-        !read_section_header(pf.bytes, 0x70, pf.data_section) ||
-        !read_section_header(pf.bytes, 0xA0, pf.types_section))
+    if (!read_section_header(pf.bytes, 0x40, pf.classnames_section, pf.little_endian) ||
+        !read_section_header(pf.bytes, 0x70, pf.data_section, pf.little_endian) ||
+        !read_section_header(pf.bytes, 0xA0, pf.types_section, pf.little_endian))
     {
         OutputLog::error("havok: failed to read section headers ("
                           + source_label + ")");
@@ -101,7 +129,7 @@ std::optional<PackFile> LoadPackFileFromBytes(std::vector<uint8_t> bytes,
     {
         size_t i = cs_start;
         while (i + 5 < cs_end) {
-            const uint32_t hash = read_u32_be(pf.bytes.data() + i);
+            const uint32_t hash = read_u32(pf.bytes.data() + i, pf.little_endian);
             const uint8_t  sep  = pf.bytes[i + 4];
             if (sep != 0x09) {
                 break;
@@ -133,9 +161,9 @@ std::optional<PackFile> LoadPackFileFromBytes(std::vector<uint8_t> bytes,
             size_t i = vf_start + 8;
             while (i + 12 <= vf_end) {
                 VirtualFixup vf;
-                vf.classnames_offset = read_u32_be(pf.bytes.data() + i);
-                vf.data_offset       = read_u32_be(pf.bytes.data() + i + 4);
-                vf.section_idx       = read_u32_be(pf.bytes.data() + i + 8);
+                vf.classnames_offset = read_u32(pf.bytes.data() + i, pf.little_endian);
+                vf.data_offset       = read_u32(pf.bytes.data() + i + 4, pf.little_endian);
+                vf.section_idx       = read_u32(pf.bytes.data() + i + 8, pf.little_endian);
                 if (vf.classnames_offset == 0 && vf.data_offset == 0 &&
                     vf.section_idx == 0) {
                     break;
@@ -296,9 +324,9 @@ void LogClassInstanceBytes(const PackFile& pf,
         OutputLog::info("    candidate vec3 (x,y,z in world bounds):");
         bool any_hit = false;
         for (size_t off = 0; off + 12 <= dump_size; off += 4) {
-            float x = read_f32_be(p + off);
-            float y = read_f32_be(p + off + 4);
-            float z = read_f32_be(p + off + 8);
+            float x = read_f32(p + off, pf.little_endian);
+            float y = read_f32(p + off + 4, pf.little_endian);
+            float z = read_f32(p + off + 8, pf.little_endian);
             if (!(std::isfinite(x) && std::isfinite(y) &&
                   std::isfinite(z))) continue;
             const bool xy_ok = std::abs(x) <= world_max_xy &&
@@ -339,28 +367,32 @@ void ApplyLocalFixups(PackFile& pf) {
     }
     if (all_zero_head) i += 8;
 
-    auto read_u32_be = [&](size_t off) {
-        return (uint32_t(pf.bytes[off]) << 24) |
-               (uint32_t(pf.bytes[off + 1]) << 16) |
-               (uint32_t(pf.bytes[off + 2]) << 8) |
-                uint32_t(pf.bytes[off + 3]);
+    auto read_u32_local = [&](size_t off) {
+        return read_u32(pf.bytes.data() + off, pf.little_endian);
     };
-    auto write_u32_be = [&](size_t off, uint32_t v) {
-        pf.bytes[off]     = uint8_t((v >> 24) & 0xff);
-        pf.bytes[off + 1] = uint8_t((v >> 16) & 0xff);
-        pf.bytes[off + 2] = uint8_t((v >> 8)  & 0xff);
-        pf.bytes[off + 3] = uint8_t( v        & 0xff);
+    auto write_u32_local = [&](size_t off, uint32_t v) {
+        if (pf.little_endian) {
+            pf.bytes[off]     = uint8_t(v & 0xff);
+            pf.bytes[off + 1] = uint8_t((v >> 8) & 0xff);
+            pf.bytes[off + 2] = uint8_t((v >> 16) & 0xff);
+            pf.bytes[off + 3] = uint8_t((v >> 24) & 0xff);
+        } else {
+            pf.bytes[off]     = uint8_t((v >> 24) & 0xff);
+            pf.bytes[off + 1] = uint8_t((v >> 16) & 0xff);
+            pf.bytes[off + 2] = uint8_t((v >> 8)  & 0xff);
+            pf.bytes[off + 3] = uint8_t(v & 0xff);
+        }
     };
 
     size_t applied = 0;
     while (i + 8 <= lf_end) {
-        const uint32_t src = read_u32_be(i);
-        const uint32_t dst = read_u32_be(i + 4);
+        const uint32_t src = read_u32_local(i);
+        const uint32_t dst = read_u32_local(i + 4);
         i += 8;
         if (src == 0xFFFFFFFF || dst == 0xFFFFFFFF) break;
         const size_t pfield = ds.absolute_data_start + src;
         if (pfield + 4 > pf.bytes.size()) continue;
-        write_u32_be(pfield, dst);
+        write_u32_local(pfield, dst);
         ++applied;
     }
     {
@@ -402,8 +434,8 @@ std::vector<CollisionMesh> ExtractCollisionMeshes(const PackFile& pf) {
     auto read_hk_array = [&](size_t arr_off) -> std::pair<uint32_t, uint32_t> {
         const size_t abs = data_base + arr_off;
         if (abs + 12 > pf.bytes.size()) return {0, 0};
-        uint32_t data_off = read_u32_be(abs);
-        uint32_t size     = read_u32_be(abs + 4);
+        uint32_t data_off = read_u32(pf.bytes.data() + abs, pf.little_endian);
+        uint32_t size     = read_u32(pf.bytes.data() + abs + 4, pf.little_endian);
         return {data_off, size};
     };
 
@@ -435,17 +467,17 @@ std::vector<CollisionMesh> ExtractCollisionMeshes(const PackFile& pf) {
         m.vertices.reserve(size_t(num_verts) * 3);
         for (uint32_t v = 0; v < num_verts; ++v) {
             const size_t va = data_base + verts_off + size_t(v) * 16;
-            m.vertices.push_back(read_f32_be(va));
-            m.vertices.push_back(read_f32_be(va + 4));
-            m.vertices.push_back(read_f32_be(va + 8));
+            m.vertices.push_back(read_f32(va, pf.little_endian));
+            m.vertices.push_back(read_f32(va + 4, pf.little_endian));
+            m.vertices.push_back(read_f32(va + 8, pf.little_endian));
         }
         m.indices16.reserve(num_i16);
         for (uint32_t k = 0; k < num_i16; ++k) {
-            m.indices16.push_back(read_u16_be(data_base + i16_off + size_t(k) * 2));
+            m.indices16.push_back(read_u16(pf.bytes.data() + data_base + i16_off + size_t(k) * 2, pf.little_endian));
         }
         m.indices32.reserve(num_i32);
         for (uint32_t k = 0; k < num_i32; ++k) {
-            m.indices32.push_back(read_u32_be(data_base + i32_off + size_t(k) * 4));
+            m.indices32.push_back(read_u32(pf.bytes.data() + data_base + i32_off + size_t(k) * 4, pf.little_endian));
         }
         if (!m.vertices.empty()) out.push_back(std::move(m));
     }
