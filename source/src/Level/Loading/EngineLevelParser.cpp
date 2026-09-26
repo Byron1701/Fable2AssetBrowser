@@ -353,184 +353,37 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes, EngineLevelInfo& out)
     out = {};
     constexpr char magic[] = "LevelGraphicsFile";
     constexpr size_t ml = sizeof(magic) - 1;
+
     if (bytes.size() < ml + 8 ||
         std::memcmp(bytes.data(), magic, ml) != 0) {
         out.error = "magic mismatch";
         return false;
     }
 
+    // F3 PC LevelGraphicsFile records are still being decoded separately.
+    // For terrain loading, only the file header is required: terrain
+    // resources are resolved independently from the level's resource/VFS
+    // metadata, and F3 static props are sourced from globals.gdb.
+    //
+    // Do not guess at placement-record boundaries here. An incorrect
+    // placement stride can desynchronise the stream and turn arbitrary
+    // transform bytes into fake entry types, preventing an otherwise valid
+    // level from loading.
     LeReader r{bytes.data(), bytes.size(), ml};
     if (!r.u32(out.version) || !r.u32(out.entry_count)) {
-        out.error = "truncated F3 level header";
+        out.error = "truncated F3 LevelGraphicsFile header";
         return false;
     }
+
+    if (out.version < 13 || out.version > 32) {
+        out.error = "unsupported F3 LevelGraphicsFile version " +
+                    std::to_string(out.version);
+        return false;
+    }
+
     if (out.entry_count > (1u << 20)) {
-        out.error = "F3 entry count looks corrupt";
+        out.error = "F3 LevelGraphicsFile entry count looks corrupt";
         return false;
-    }
-
-    out.entries.reserve(out.entry_count);
-
-    for (uint32_t i = 0; i < out.entry_count; ++i) {
-        EngineLevelEntry e;
-        e.offset = r.i;
-
-        if (!r.u32(e.type)) {
-            std::ostringstream os;
-            os << "truncated F3 entry " << i << " of " << out.entry_count;
-            out.error = os.str();
-            return false;
-        }
-
-        switch (e.type) {
-        case 2: {
-            PropBlock block;
-            block.offset = e.offset;
-            block.type = e.type;
-
-            if (!r.cstr(block.model_path) ||
-                !r.cstr(block.shadow_model_path) ||
-                !r.cstr(block.lod_model_path)) {
-                OutputLog::warn("F3 type-2 placement block has truncated model-path data; "
-                                "stopping optional placement parsing");
-                out.entries.push_back(e);
-                out.ok = true;
-                return true;
-            }
-
-            e.str_a = block.model_path;
-            e.str_b = block.lod_model_path;
-
-            const uint32_t count_off = static_cast<uint32_t>(r.i);
-            uint32_t instance_count = 0;
-            if (!r.u32(instance_count) || instance_count > 100000) {
-                OutputLog::warn("F3 type-2 placement block has invalid instance count; "
-                                "stopping optional placement parsing");
-                out.entries.push_back(e);
-                out.ok = true;
-                return true;
-            }
-
-            block.instances.reserve(instance_count);
-            for (uint32_t n = 0; n < instance_count; ++n) {
-                // The validated F3 PC record is 92 bytes:
-                // flags[3], hash[u64], float[20].
-                if (r.i + 91 > bytes.size()) {
-                    OutputLog::warn("F3 type-2 placement block is truncated; "
-                                    "continuing without remaining optional placements");
-                    break;
-                }
-
-                PropInstance inst;
-                inst.record_file_offset = static_cast<uint32_t>(r.i);
-                inst.count_file_offset = count_off;
-                inst.record_size = 91;
-                inst.lev_rec_kind = 1;
-
-                if (!r.u8(inst.flags[0]) ||
-                    !r.u8(inst.flags[1]) ||
-                    !r.u8(inst.flags[2]) ||
-                    !r.u64(inst.hash)) {
-                    OutputLog::warn("F3 type-2 placement record is truncated; "
-                                    "continuing without remaining optional placements");
-                    break;
-                }
-
-                inst.pos_file_offset = static_cast<uint32_t>(r.i);
-                bool valid_record = true;
-                for (float& v : inst.values) {
-                    if (!r.f32(v)) {
-                        valid_record = false;
-                        break;
-                    }
-                }
-                if (!valid_record) {
-                    OutputLog::warn("F3 type-2 placement transform is truncated; "
-                                    "continuing without remaining optional placements");
-                    break;
-                }
-
-                inst.has_full_transform = true;
-                block.instances.push_back(inst);
-            }
-
-            if (!block.instances.empty())
-                out.prop_blocks.push_back(std::move(block));
-            break;
-        }
-
-        case 4:
-        case 5:
-        case 32:
-            if (!r.cstr(e.str_a)) {
-                out.error = "truncated F3 string entry";
-                return false;
-            }
-            if (e.type == 4) {
-                if (!r.u64(e.resource_key)) {
-                    out.error = "truncated F3 type-4 key";
-                    return false;
-                }
-                e.has_resource_key = true;
-            }
-            break;
-
-        case 21:
-            // Type-21 has a different F3 layout from the F2 parser. Do not
-            // interpret it as an F2 placement record. The exact payload can
-            // be decoded independently; for the terrain/resource pipeline,
-            // preserve its two leading strings and skip its payload by using
-            // the next validated entry boundary.
-            if (!r.cstr(e.str_a) || !r.cstr(e.str_b)) {
-                out.error = "truncated F3 type-21 paths";
-                return false;
-            }
-            {
-                const size_t payload_start = r.i;
-                size_t next = bytes.size();
-                for (size_t off = payload_start; off + 4 <= bytes.size(); ++off) {
-                    const uint32_t t =
-                        uint32_t(bytes[off]) |
-                        (uint32_t(bytes[off + 1]) << 8) |
-                        (uint32_t(bytes[off + 2]) << 16) |
-                        (uint32_t(bytes[off + 3]) << 24);
-                    if (t != 2 && t != 4 && t != 5 && t != 21 && t != 32)
-                        continue;
-                    if (off + 5 > bytes.size()) continue;
-                    size_t p = off + 4;
-                    while (p < bytes.size() && bytes[p] != 0) {
-                        const uint8_t ch = bytes[p++];
-                        if (ch < 0x20 || ch > 0x7e) break;
-                    }
-                    if (p < bytes.size() && bytes[p] == 0) {
-                        next = off;
-                        break;
-                    }
-                }
-                if (next <= payload_start || next > bytes.size()) {
-                    out.error = "could not locate end of F3 type-21 payload";
-                    return false;
-                }
-                r.i = next;
-            }
-            break;
-
-        default: {
-            std::ostringstream os;
-            os << "F3 LevelGraphicsFile contains unsupported optional entry type "
-               << e.type << " at offset 0x" << std::hex << e.offset;
-            OutputLog::warn(os.str());
-            // Placement/resource types not understood here must not prevent
-            // terrain loading. F3 static-prop definitions are supplied by
-            // globals.gdb, while terrain resources are handled separately.
-            out.entries.push_back(e);
-            out.ok = true;
-            return true;
-        }
-        }
-
-        e.size = r.i - e.offset;
-        out.entries.push_back(std::move(e));
     }
 
     out.ok = true;
