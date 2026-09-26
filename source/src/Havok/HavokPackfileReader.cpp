@@ -14,7 +14,7 @@ namespace Havok {
 namespace {
 
 constexpr size_t kHeaderSize        = 0x40;
-constexpr size_t kSectionHeaderSize = 0x30;
+constexpr size_t kSectionHeaderSize = 0x40;
 
 uint32_t read_u32_be(const uint8_t* p) {
     return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) |
@@ -103,11 +103,13 @@ std::optional<PackFile> LoadPackFileFromBytes(std::vector<uint8_t> bytes,
     }
     pf.little_endian = (pf.bytes[0x11] == 1);
 
+    // F3 PC uses the standard 0x40-byte Havok section headers:
+    // __classnames__ at 0x40, __types__ at 0x80, __data__ at 0xC0.
     if (!read_section_header(pf.bytes, 0x40, pf.classnames_section,
                              pf.little_endian) ||
-        !read_section_header(pf.bytes, 0x70, pf.data_section,
+        !read_section_header(pf.bytes, 0x80, pf.types_section,
                              pf.little_endian) ||
-        !read_section_header(pf.bytes, 0xA0, pf.types_section,
+        !read_section_header(pf.bytes, 0xC0, pf.data_section,
                              pf.little_endian))
     {
         OutputLog::error("havok: failed to read section headers ("
