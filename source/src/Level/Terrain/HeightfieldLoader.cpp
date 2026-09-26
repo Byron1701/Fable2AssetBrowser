@@ -242,6 +242,8 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
     const uint32_t W = hg.width;
     const uint32_t H = hg.height;
     const float    tile = hg.tile_size > 0.f ? hg.tile_size : 0.5f;
+    const float    origin_x = hg.f3_format ? hg.origin_x : 0.0f;
+    const float    origin_z = hg.f3_format ? hg.origin_z : 0.0f;
     const size_t   N    = size_t(W) * size_t(H);
     const size_t   tris = size_t(W - 1) * size_t(H - 1) * 2;
 
@@ -259,9 +261,9 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
     for (uint32_t y = 0; y < H; ++y) {
         for (uint32_t x = 0; x < W; ++x) {
             const size_t i = size_t(y) * W + x;
-            out.positions[i * 3 + 0] = float(x) * tile;
+            out.positions[i * 3 + 0] = origin_x + float(x) * tile;
             out.positions[i * 3 + 1] = hg.heights[i];
-            out.positions[i * 3 + 2] = float(y) * tile;
+            out.positions[i * 3 + 2] = origin_z + float(y) * tile;
             out.uvs[i * 2 + 0]       = float(x) * tile * kUvRepeatsPerWu;
             out.uvs[i * 2 + 1]       = float(y) * tile * kUvRepeatsPerWu;
         }
