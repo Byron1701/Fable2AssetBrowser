@@ -350,7 +350,7 @@ bool ParseF3EHF(const std::vector<uint8_t>& bytes, TerrainMesh& out, std::string
     auto lef=[&](size_t o)->float { uint32_t u=le32(o); float f; std::memcpy(&f,&u,4); return f; };
     const uint32_t W=le32(0x23), H=le32(0x27);
     const float spacing=lef(0x2b);
-    if(W<2||H<2||W>8192||H>8192||!(spacing>0)&&std::isfinite(spacing)) return false;
+    if(W<2||H<2||W>8192||H>8192||!(spacing>0.f && std::isfinite(spacing))) return false;
     const uint32_t pcx=le32(0x37), pcy=le32(0x3b);
     const uint32_t pw=le32(0x3f), ph=le32(0x43);
     if(pw!=32||ph!=32 || pcx==0 || pcy==0) return false;
