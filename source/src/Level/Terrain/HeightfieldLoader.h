@@ -35,6 +35,10 @@ struct HeightfieldFiles {
 };
 
 struct GhfHeights {
+    bool        f3_format = false;
+    float       origin_x = 0.f;
+    float       origin_z = 0.f;
+    float       base_height = 0.f;
     bool                  ok        = false;
     uint32_t              width     = 0;
     uint32_t              height    = 0;
@@ -71,5 +75,7 @@ struct TerrainMesh {
 };
 
 bool BuildTerrainMesh(const GhfHeights& heights, TerrainMesh& out);
+bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes, GhfHeights& out);
+bool ParseF3EHF(const std::vector<uint8_t>& bytes, TerrainMesh& out, std::string* out_stats = nullptr);
 
 }
