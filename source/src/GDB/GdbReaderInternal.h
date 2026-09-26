@@ -17,9 +17,52 @@ inline uint32_t ReadBeU32(const uint8_t* p)
            uint32_t(p[3]);
 }
 
-inline float ReadBeF32(const uint8_t* p)
+inline uint32_t ReadLeU32(const uint8_t* p)
 {
-    uint32_t v = ReadBeU32(p);
+    return uint32_t(p[0]) |
+           (uint32_t(p[1]) << 8) |
+           (uint32_t(p[2]) << 16) |
+           (uint32_t(p[3]) << 24);
+}
+
+inline bool DetectLittleEndian(const std::vector<uint8_t>& bytes)
+{
+    if (bytes.size() < kHeaderSize) return false;
+
+    const uint32_t be_count = ReadBeU32(bytes.data() + 0x04);
+    const uint32_t be_a = ReadBeU32(bytes.data() + 0x08);
+    const uint32_t be_b = ReadBeU32(bytes.data() + 0x0C);
+
+    const uint32_t le_count = ReadLeU32(bytes.data() + 0x04);
+    const uint32_t le_a = ReadLeU32(bytes.data() + 0x08);
+    const uint32_t le_b = ReadLeU32(bytes.data() + 0x0C);
+
+    auto plausible = [&](uint32_t count, uint32_t a, uint32_t b) {
+        if (count == 0 || count > 10000000u) return false;
+        const size_t schema = kHeaderSize + size_t(a);
+        const size_t hashes = schema + size_t(b);
+        if (schema > bytes.size() || hashes > bytes.size()) return false;
+        const size_t end = hashes + size_t(count) * 4 +
+                           size_t(count) * 2;
+        return end <= bytes.size();
+    };
+
+    const bool be_ok = plausible(be_count, be_a, be_b);
+    const bool le_ok = plausible(le_count, le_a, le_b);
+
+    return le_ok && !be_ok;
+}
+
+inline uint32_t ReadGdbU32(const std::vector<uint8_t>& bytes,
+                           const uint8_t* p)
+{
+    return DetectLittleEndian(bytes) ? ReadLeU32(p) : ReadBeU32(p);
+}
+
+inline float ReadGdbF32(const std::vector<uint8_t>& bytes,
+                        const uint8_t* p)
+{
+    uint32_t v = ReadGdbU32(bytes, p);
     float f;
     std::memcpy(&f, &v, 4);
     return f;
@@ -42,6 +85,7 @@ struct GdbView {
     size_t hash_base = 0;
     size_t offset_base = 0;
     bool ok = false;
+    bool little_endian = false;
 
     std::vector<size_t> record_data_offsets;
 
@@ -52,9 +96,13 @@ struct GdbView {
             bytes[3] != 0) {
             return;
         }
-        count = ReadBeU32(bytes.data() + 0x04);
-        size_a = ReadBeU32(bytes.data() + 0x08);
-        size_b = ReadBeU32(bytes.data() + 0x0C);
+        little_endian = DetectLittleEndian(bytes);
+        auto rd = [&](const uint8_t* p) {
+            return little_endian ? ReadLeU32(p) : ReadBeU32(p);
+        };
+        count = rd(bytes.data() + 0x04);
+        size_a = rd(bytes.data() + 0x08);
+        size_b = rd(bytes.data() + 0x0C);
         if (count == 0) return;
         schema_base = kHeaderSize + size_t(size_a);
         hash_base = schema_base + size_t(size_b);
@@ -98,12 +146,12 @@ struct GdbView {
         size_t hi = count;
         while (lo < hi) {
             size_t mid = lo + (hi - lo) / 2;
-            uint32_t v = ReadBeU32(bytes.data() + hash_base + mid * 4);
+            uint32_t v = (little_endian ? ReadLeU32(bytes.data() + hash_base + mid * 4) : ReadBeU32(bytes.data() + hash_base + mid * 4));
             if (v < hash) lo = mid + 1;
             else hi = mid;
         }
         if (lo >= count) return false;
-        uint32_t found = ReadBeU32(bytes.data() + hash_base + lo * 4);
+        uint32_t found = (little_endian ? ReadLeU32(bytes.data() + hash_base + lo * 4) : ReadBeU32(bytes.data() + hash_base + lo * 4));
         if (found != hash) return false;
         if (lo >= record_data_offsets.size()) return false;
         record = record_data_offsets[lo];
@@ -115,10 +163,10 @@ struct GdbView {
                             uint32_t& field_count) const
     {
         if (record + 4 > body_end) return false;
-        uint32_t rel = ReadBeU32(bytes.data() + record);
+        uint32_t rel = (little_endian ? ReadLeU32(bytes.data() + record) : ReadBeU32(bytes.data() + record));
         schema_off = schema_base + size_t(rel);
         if (schema_off + 4 > hash_base) return false;
-        uint32_t header = ReadBeU32(bytes.data() + schema_off);
+        uint32_t header = (little_endian ? ReadLeU32(bytes.data() + schema_off) : ReadBeU32(bytes.data() + schema_off));
         field_count = header >> 8;
         if (field_count > 256) {
             const uint8_t* p = bytes.data() + schema_off;
@@ -149,11 +197,11 @@ struct GdbView {
         const size_t hashes = sch + 4;
         const size_t descs = hashes + size_t(n) * 4;
         for (uint32_t i = 0; i < n; ++i) {
-            if (ReadBeU32(bytes.data() + hashes + size_t(i) * 4) != field_hash) {
+            if ((little_endian ? ReadLeU32(bytes.data() + hashes + size_t(i) * 4) : ReadBeU32(bytes.data() + hashes + size_t(i) * 4)) != field_hash) {
                 continue;
             }
             const uint32_t desc =
-                ReadBeU32(bytes.data() + descs + size_t(i) * 4);
+                (little_endian ? ReadLeU32(bytes.data() + descs + size_t(i) * 4) : ReadBeU32(bytes.data() + descs + size_t(i) * 4));
             const uint8_t type = uint8_t(desc >> 24);
             if (expected_type != 0xFF && type != expected_type) return false;
             slot = record + 4 + size_t(i) * 4;
@@ -192,7 +240,7 @@ struct GdbView {
             if (!findLocal(cur, kHashParent, 6, parent_slot, nullptr)) {
                 return false;
             }
-            uint32_t parent_hash = ReadBeU32(bytes.data() + parent_slot);
+            uint32_t parent_hash = (little_endian ? ReadLeU32(bytes.data() + parent_slot) : ReadBeU32(bytes.data() + parent_slot));
             if (parent_hash == 0) return false;
             size_t parent_rec = 0;
             if (!lookup(parent_hash, parent_rec)) return false;
@@ -208,7 +256,7 @@ struct GdbView {
         size_t slot = 0;
         if (!findLocal(record, field_hash, 3, slot, nullptr)) return false;
         if (slot + 4 > body_end) return false;
-        value = ReadBeF32(bytes.data() + slot);
+        value = (little_endian ? [&]{ uint32_t v=ReadLeU32(bytes.data()+slot); float f; std::memcpy(&f,&v,4); return f; }() : ReadBeF32(bytes.data() + slot));
         if (!std::isfinite(value)) return false;
         if (out_slot) *out_slot = slot;
         return true;
