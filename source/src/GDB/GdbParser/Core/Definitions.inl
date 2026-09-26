@@ -16,8 +16,8 @@ inline bool Finite3(float x, float y, float z) {
 
 constexpr uint32_t kVarMarker    = 0x00004B80;
 constexpr uint32_t kInlineVec3SchemaRel = 0x00000568;
-constexpr uint32_t kHashPosition = 0xBD7C27D4;
-constexpr uint32_t kHashRotation = 0x21EBC83B;
+constexpr uint32_t kHashPosition = 0x21EBC83B;
+constexpr uint32_t kHashRotation = 0xBD7C27D4;
 constexpr uint32_t kHashTransformComponent = 0xF73572C4;
 
 constexpr uint32_t kHashSimpleTransformComponent = 0x619F96CF;
