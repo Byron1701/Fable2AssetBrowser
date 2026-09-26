@@ -176,8 +176,29 @@ bool LoadHeightfieldFiles(const std::string& ehf_path,
             return false;
         }
         if (!gunzip(out.ghf_bytes_compressed, out.ghf_bytes_raw, err)) {
-            out.error = ".ghf gunzip failed: " + err;
-            return false;
+            // Fable 3 PC GHF files may be stored uncompressed in the BNK.
+            // Keep the raw payload when its little-endian 28-byte header is valid.
+            if (out.ghf_bytes_compressed.size() >= 28) {
+                const uint32_t w = uint32_t(out.ghf_bytes_compressed[0x0c]) |
+                                   (uint32_t(out.ghf_bytes_compressed[0x0d]) << 8) |
+                                   (uint32_t(out.ghf_bytes_compressed[0x0e]) << 16) |
+                                   (uint32_t(out.ghf_bytes_compressed[0x0f]) << 24);
+                const uint32_t h = uint32_t(out.ghf_bytes_compressed[0x10]) |
+                                   (uint32_t(out.ghf_bytes_compressed[0x11]) << 8) |
+                                   (uint32_t(out.ghf_bytes_compressed[0x12]) << 16) |
+                                   (uint32_t(out.ghf_bytes_compressed[0x13]) << 24);
+                const uint64_t expected = 28ull + uint64_t(w) * uint64_t(h) * 14ull;
+                if (w >= 2 && h >= 2 && w <= 8192 && h <= 8192 &&
+                    expected <= out.ghf_bytes_compressed.size()) {
+                    out.ghf_bytes_raw = out.ghf_bytes_compressed;
+                } else {
+                    out.error = ".ghf gunzip failed: " + err;
+                    return false;
+                }
+            } else {
+                out.error = ".ghf gunzip failed: " + err;
+                return false;
+            }
         }
     }
 
