@@ -8,6 +8,62 @@
 #include <vector>
 
 namespace Level {
+
+struct LeReader {
+    const uint8_t* p = nullptr;
+    size_t         n = 0;
+    size_t         i = 0;
+
+    bool need(size_t k) const { return i + k <= n; }
+    bool u8(uint8_t& v) {
+        if (!need(1)) return false; v = p[i++]; return true;
+    }
+    bool u32(uint32_t& v) {
+        if (!need(4)) return false;
+        v = uint32_t(p[i]) | (uint32_t(p[i+1]) << 8) |
+            (uint32_t(p[i+2]) << 16) | (uint32_t(p[i+3]) << 24);
+        i += 4; return true;
+    }
+    bool u64(uint64_t& v) {
+        uint32_t lo=0, hi=0;
+        if (!u32(lo) || !u32(hi)) return false;
+        v = uint64_t(lo) | (uint64_t(hi) << 32); return true;
+    }
+    bool f32(float& f) {
+        uint32_t u=0; if (!u32(u)) return false;
+        std::memcpy(&f, &u, sizeof(f)); return true;
+    }
+    bool skip(size_t k) { if (!need(k)) return false; i += k; return true; }
+    bool half(float& out) {
+        if (!need(2)) return false;
+        const uint16_t h = uint16_t(p[i]) | (uint16_t(p[i+1]) << 8);
+        i += 2;
+        const uint32_t sign = (uint32_t(h & 0x8000)) << 16;
+        const uint32_t exp_h = (h >> 10) & 0x1f;
+        const uint32_t mant = h & 0x3ff;
+        uint32_t bits;
+        if (exp_h == 0) {
+            if (mant == 0) bits = sign;
+            else {
+                uint32_t e = 127 - 14, m = mant;
+                while ((m & 0x400) == 0) { m <<= 1; --e; }
+                m &= 0x3ff;
+                bits = sign | (e << 23) | (m << 13);
+            }
+        } else if (exp_h == 31) {
+            bits = sign | (0xff << 23) | (mant << 13);
+        } else {
+            bits = sign | ((exp_h + (127 - 15)) << 23) | (mant << 13);
+        }
+        std::memcpy(&out, &bits, sizeof(out)); return true;
+    }
+    bool cstr(std::string& s) {
+        s.clear(); const size_t start=i; const size_t limit=std::min(n,start+4096);
+        while (i<limit) { const uint8_t c=p[i++]; if(c==0) return true; s.push_back(char(c)); }
+        return false;
+    }
+};
+
 struct BeReader {
     const uint8_t* p = nullptr;
     size_t         n = 0;
