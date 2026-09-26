@@ -313,4 +313,76 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
     return true;
 }
 
+
+bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes, GhfHeights& out)
+{
+    out = {};
+    constexpr size_t H = 28, R = 14;
+    if (bytes.size() < H) { out.error = "F3 GHF too small"; return false; }
+    auto le32=[&](size_t o)->uint32_t { return uint32_t(bytes[o]) | (uint32_t(bytes[o+1])<<8) | (uint32_t(bytes[o+2])<<16) | (uint32_t(bytes[o+3])<<24); };
+    auto lef=[&](size_t o)->float { uint32_t u=le32(o); float f; std::memcpy(&f,&u,4); return f; };
+    const uint32_t w=le32(0x0c), h=le32(0x10);
+    if (!w || !h || w>8192 || h>8192 || H + uint64_t(w)*h*R > bytes.size()) {
+        out.error = "F3 GHF dimensions/body are invalid"; return false;
+    }
+    out.f3_format=true; out.origin_x=lef(0); out.origin_z=lef(4); out.base_height=lef(0x14);
+    out.width=w; out.height=h; out.tile_size=0.5f; out.heights.resize(size_t(w)*h);
+    out.min_height=std::numeric_limits<float>::infinity();
+    out.max_height=-std::numeric_limits<float>::infinity();
+    for(size_t i=0;i<out.heights.size();++i) {
+        const float v=lef(H+i*R);
+        if(!std::isfinite(v)) { out.error="F3 GHF contains non-finite elevation"; return false; }
+        out.heights[i]=v + out.base_height;
+        out.min_height=std::min(out.min_height,out.heights[i]);
+        out.max_height=std::max(out.max_height,out.heights[i]);
+    }
+    out.ok=true; return true;
+}
+
+bool ParseF3EHF(const std::vector<uint8_t>& bytes, TerrainMesh& out, std::string* stats)
+{
+    out={}; if(stats) stats->clear();
+    static constexpr char M[]="HeightFieldGraphicsFile";
+    if(bytes.size()<0x47 || std::memcmp(bytes.data(),M,sizeof(M)-1)!=0) return false;
+    auto le32=[&](size_t o)->uint32_t { return uint32_t(bytes[o]) | (uint32_t(bytes[o+1])<<8) | (uint32_t(bytes[o+2])<<16) | (uint32_t(bytes[o+3])<<24); };
+    auto lef=[&](size_t o)->float { uint32_t u=le32(o); float f; std::memcpy(&f,&u,4); return f; };
+    const uint32_t W=le32(0x23), H=le32(0x27);
+    const float spacing=lef(0x2b);
+    if(W<2||H<2||W>8192||H>8192||!(spacing>0)&&std::isfinite(spacing)) return false;
+    const uint32_t pcx=le32(0x37), pcy=le32(0x3b);
+    const uint32_t pw=le32(0x3f), ph=le32(0x43);
+    if(pw!=32||ph!=32 || pcx==0 || pcy==0) return false;
+    const size_t stride=32 + 33ull*33ull*8ull;
+    if(0x47ull + uint64_t(pcx)*pcy*stride > bytes.size()) return false;
+    out.width=W; out.height=H; out.min_height=std::numeric_limits<float>::infinity(); out.max_height=-std::numeric_limits<float>::infinity();
+    out.positions.reserve(size_t(W)*H*3); out.normals.resize(size_t(W)*H*3); out.uvs.resize(size_t(W)*H*2);
+    out.indices.reserve(size_t(W-1)*(H-1)*6);
+    std::vector<float> heights(size_t(W)*H,0.f);
+    for(uint32_t py=0;py<pcy;++py) for(uint32_t px=0;px<pcx;++px) {
+        const size_t po=0x47 + (size_t(py)*pcx+px)*stride;
+        const float ox=lef(po), oz=lef(po+4);
+        const uint32_t vpw=le32(po+24), vph=le32(po+28);
+        if(vpw!=33||vph!=33) return false;
+        const float sx=(lef(po+16)-ox)/32.f, sz=(lef(po+20)-oz)/32.f;
+        if(!(sx>0.f)||!(sz>0.f)) return false;
+        for(uint32_t z=0;z<33;++z) for(uint32_t x=0;x<33;++x) {
+            const uint32_t gx=px*32+x, gz=py*32+z;
+            if(gx>=W||gz>=H) continue;
+            const float hv=lef(po+32+(size_t(z)*33+x)*8);
+            if(!std::isfinite(hv)) return false;
+            heights[size_t(gz)*W+gx]=hv;
+        }
+    }
+    for(uint32_t z=0;z<H;++z) for(uint32_t x=0;x<W;++x) {
+        const size_t i=size_t(z)*W+x; const float wx=lef(0x1b)+x*spacing, wz=lef(0x1f)+z*spacing;
+        out.positions.insert(out.positions.end(),{wx,heights[i],wz});
+        out.uvs[i*2]=float(x)/float(W-1); out.uvs[i*2+1]=float(z)/float(H-1);
+        out.min_height=std::min(out.min_height,heights[i]); out.max_height=std::max(out.max_height,heights[i]);
+    }
+    auto at=[&](int x,int z){x=std::clamp(x,0,int(W)-1);z=std::clamp(z,0,int(H)-1);return heights[size_t(z)*W+x];};
+    for(uint32_t z=0;z<H;++z) for(uint32_t x=0;x<W;++x){float nx=at(int(x)-1,z)-at(int(x)+1,z),ny=2.f*spacing,nz=at(x,int(z)-1)-at(x,int(z)+1);float l=std::sqrt(nx*nx+ny*ny+nz*nz);if(l>1e-6f){nx/=l;ny/=l;nz/=l;}const size_t i=(size_t(z)*W+x)*3;out.normals[i]=nx;out.normals[i+1]=ny;out.normals[i+2]=nz;}
+    size_t k=0; for(uint32_t z=0;z+1<H;++z) for(uint32_t x=0;x+1<W;++x){uint32_t a=z*W+x,b=a+1,c=(z+1)*W+x,d=c+1;out.indices.insert(out.indices.end(),{a,c,b,b,c,d});}
+    out.ok=true; if(stats){*stats=std::to_string(pcx*pcy)+" F3 EHF patches, "+std::to_string(W)+"x"+std::to_string(H)+" vertices";} return true;
+}
+
 }
