@@ -467,9 +467,9 @@ std::vector<CollisionMesh> ExtractCollisionMeshes(const PackFile& pf) {
         m.vertices.reserve(size_t(num_verts) * 3);
         for (uint32_t v = 0; v < num_verts; ++v) {
             const size_t va = data_base + verts_off + size_t(v) * 16;
-            m.vertices.push_back(read_f32(va, pf.little_endian));
-            m.vertices.push_back(read_f32(va + 4, pf.little_endian));
-            m.vertices.push_back(read_f32(va + 8, pf.little_endian));
+            m.vertices.push_back(read_f32(pf.bytes.data() + va, pf.little_endian));
+            m.vertices.push_back(read_f32(pf.bytes.data() + va + 4, pf.little_endian));
+            m.vertices.push_back(read_f32(pf.bytes.data() + va + 8, pf.little_endian));
         }
         m.indices16.reserve(num_i16);
         for (uint32_t k = 0; k < num_i16; ++k) {
