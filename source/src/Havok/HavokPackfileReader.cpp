@@ -103,16 +103,35 @@ std::optional<PackFile> LoadPackFileFromBytes(std::vector<uint8_t> bytes,
     }
     pf.little_endian = (pf.bytes[0x11] == 1);
 
-    // F3 PC uses the standard 0x40-byte Havok section headers:
-    // __classnames__ at 0x40, __types__ at 0x80, __data__ at 0xC0.
-    if (!read_section_header(pf.bytes, 0x40, pf.classnames_section,
-                             pf.little_endian) ||
-        !read_section_header(pf.bytes, 0x80, pf.types_section,
-                             pf.little_endian) ||
-        !read_section_header(pf.bytes, 0xC0, pf.data_section,
-                             pf.little_endian))
+    // Havok 2010/2014 packfiles can have an extended header/padding
+    // between the 0x40-byte global header and the first section header.
+    // Do not assume that __classnames__ is necessarily at file offset 0x40.
+    // Locate the section tag, then the following standard 0x40-byte headers.
+    size_t section0 = std::string::npos;
+    const char* classnames_tag = "__classnames__";
+    for (size_t off = 0x40; off + 20 <= std::min<size_t>(pf.bytes.size(), 0x200);
+         off += 0x10)
     {
-        OutputLog::error("havok: failed to read section headers ("
+        if (std::memcmp(pf.bytes.data() + off, classnames_tag,
+                        std::strlen(classnames_tag)) == 0)
+        {
+            section0 = off;
+            break;
+        }
+    }
+
+    if (section0 == std::string::npos ||
+        !read_section_header(pf.bytes, section0, pf.classnames_section,
+                             pf.little_endian) ||
+        !read_section_header(pf.bytes, section0 + 0x40, pf.types_section,
+                             pf.little_endian) ||
+        !read_section_header(pf.bytes, section0 + 0x80, pf.data_section,
+                             pf.little_endian) ||
+        pf.classnames_section.name != "__classnames__" ||
+        pf.types_section.name != "__types__" ||
+        pf.data_section.name != "__data__")
+    {
+        OutputLog::error("havok: failed to locate/read section headers ("
                           + source_label + ")");
         return std::nullopt;
     }
