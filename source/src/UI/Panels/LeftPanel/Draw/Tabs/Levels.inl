@@ -163,8 +163,8 @@
             static FlatAssetEntry s_delete_level_entry{};
             static std::string s_delete_level_name;
             if (S.all_level_files.empty()) {
-                ImGui::TextDisabled("No .engine_level files indexed yet.");
-                ImGui::TextDisabled("Open a Fable 2 root to populate the list.");
+                ImGui::TextDisabled("No Fable level files indexed yet.");
+                ImGui::TextDisabled("Open a Fable II or Fable III root to populate the list.");
             } else {
                 auto draw_entry = [&](const FlatAssetEntry& e,
                                       const std::string& friendly)
