@@ -276,7 +276,11 @@ static void tb_index_file(TreeNode& root,
         e.size = file_size;
         e.from_nested = is_nested;
         S.all_anim_files.push_back(std::move(e));
-    } else if (tb_ends_with_ci(leaf, ".engine_level")) {
+    } else if (tb_ends_with_ci(leaf, ".engine_level") ||
+               tb_ends_with_ci(leaf, ".flmp")) {
+        // Fable II levels use .engine_level; Fable III level packages use
+        // .flmp. Both use the existing level loading/rendering pipeline;
+        // Level::Open selects the parser from the LevelGraphicsFile header.
         FlatAssetEntry e;
         e.name = leaf;
         e.full_path = path;
