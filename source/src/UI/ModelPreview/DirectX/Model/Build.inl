@@ -47,8 +47,42 @@ bool MP_Build(ID3D11Device* dev, const std::vector<MDLMeshGeom>& geoms, const MD
     }
     for(size_t i=0;i<geoms.size();++i){
         const auto& g = geoms[i];
-        size_t vcount = g.positions.size()/3;
-        if(vcount==0 || g.indices.empty()) continue;
+        const size_t vcount = g.positions.size()/3;
+        if(vcount==0 || g.positions.size() != vcount*3 ||
+           g.indices.empty() || (g.indices.size() % 3) != 0) {
+            OutputLog::warn("MP_Build: rejected malformed mesh " +
+                            std::to_string(i));
+            continue;
+        }
+
+        // F3 data must be completely sane before it reaches D3D11.  In
+        // particular, an invalid index or non-finite half-float conversion
+        // can otherwise make the native rendering path fault rather than
+        // producing a recoverable preview error.
+        bool valid_geometry = true;
+        for (float value : g.positions) {
+            if (!std::isfinite(value)) { valid_geometry = false; break; }
+        }
+        if (valid_geometry) {
+            for (float value : g.normals) {
+                if (!std::isfinite(value)) { valid_geometry = false; break; }
+            }
+        }
+        if (valid_geometry) {
+            for (float value : g.uvs) {
+                if (!std::isfinite(value)) { valid_geometry = false; break; }
+            }
+        }
+        if (valid_geometry) {
+            for (uint32_t index : g.indices) {
+                if (index >= vcount) { valid_geometry = false; break; }
+            }
+        }
+        if (!valid_geometry) {
+            OutputLog::warn("MP_Build: rejected non-finite/out-of-range F3 mesh " +
+                            std::to_string(i));
+            continue;
+        }
         std::vector<MPVertex> vtx(vcount);
         bool hasN = (g.normals.size()==vcount*3);
         bool hasT = (g.uvs.size()==vcount*2);
