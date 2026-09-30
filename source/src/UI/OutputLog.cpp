@@ -104,7 +104,8 @@ bool is_user_status_message(const std::string& msg) {
         "TEX dump",
         "TEX export",
         "WAV ",
-        "heightmap opened:"
+        "heightmap opened:",
+        "[LEVEL]"
     };
     return starts_with_any(msg, kPrefixes,
                            sizeof(kPrefixes) / sizeof(kPrefixes[0]));
@@ -213,7 +214,8 @@ bool is_noisy_message(Level lvl, const std::string& msg) {
             "tree built:",
             "vfsconfig:",
             "water theme:",
-            "water:"
+            "water:",
+            "[LEVEL]"
         };
         if (starts_with_any(msg, kInfoPrefixes,
                             sizeof(kInfoPrefixes) / sizeof(kInfoPrefixes[0]))) {
