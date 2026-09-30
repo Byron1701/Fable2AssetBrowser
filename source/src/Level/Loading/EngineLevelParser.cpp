@@ -20,6 +20,21 @@ constexpr size_t kEngineLevelMagicLen = sizeof(kEngineLevelMagic) - 1;
 bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
                       EngineLevelInfo&            out)
 {
+    // Fable II uses big-endian v11/v12; Fable III PC uses little-endian v13.
+    // Detect the version from the bytes before entering either parser so the
+    // F3 data never falls through to the legacy F2 reader.
+    if (bytes.size() >= kEngineLevelMagicLen + 4 &&
+        std::memcmp(bytes.data(), kEngineLevelMagic, kEngineLevelMagicLen) == 0) {
+        const size_t o = kEngineLevelMagicLen;
+        const uint32_t be_version =
+            (uint32_t(bytes[o]) << 24) | (uint32_t(bytes[o + 1]) << 16) |
+            (uint32_t(bytes[o + 2]) << 8) | uint32_t(bytes[o + 3]);
+        const uint32_t le_version =
+            uint32_t(bytes[o]) | (uint32_t(bytes[o + 1]) << 8) |
+            (uint32_t(bytes[o + 2]) << 16) | (uint32_t(bytes[o + 3]) << 24);
+        if (le_version == 13 && be_version != 13)
+            return ParseF3EngineLevel(bytes, out);
+    }
     out = {};
     if (bytes.size() < kEngineLevelMagicLen + 8) {
         out.error = "file too small for header";
@@ -339,6 +354,126 @@ bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
                 return true;
             }
         }
+        e.size = r.i - e.offset;
+        out.entries.push_back(std::move(e));
+    }
+
+    out.ok = true;
+    return true;
+}
+
+
+bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes,
+                        EngineLevelInfo& out)
+{
+    out = {};
+    constexpr char kMagic[] = "LevelGraphicsFile";
+    constexpr size_t kMagicLen = sizeof(kMagic) - 1;
+
+    if (bytes.size() < kMagicLen + 8 ||
+        std::memcmp(bytes.data(), kMagic, kMagicLen) != 0) {
+        out.error = "F3 LevelGraphicsFile magic mismatch";
+        return false;
+    }
+
+    LeReader r{bytes.data(), bytes.size(), kMagicLen};
+    if (!r.u32(out.version) || !r.u32(out.entry_count)) {
+        out.error = "truncated F3 LevelGraphicsFile header";
+        return false;
+    }
+    if (out.version != 13) {
+        out.error = "unsupported F3 LevelGraphicsFile version " +
+                    std::to_string(out.version);
+        return false;
+    }
+    if (out.entry_count > (1u << 20)) {
+        out.error = "F3 entry count looks corrupt";
+        return false;
+    }
+
+    out.entries.reserve(out.entry_count);
+    for (uint32_t i = 0; i < out.entry_count; ++i) {
+        EngineLevelEntry e;
+        e.offset = r.i;
+        if (!r.u32(e.type)) {
+            out.error = "truncated F3 entry " + std::to_string(i);
+            return false;
+        }
+
+        switch (e.type) {
+        case 2: {
+            PropBlock b;
+            b.offset = e.offset;
+            b.type = e.type;
+            if (!r.cstr(b.model_path) ||
+                !r.cstr(b.shadow_model_path) ||
+                !r.cstr(b.lod_model_path) ||
+                !r.cstr(b.extra_model_path)) {
+                out.error = "truncated F3 type-2 model paths";
+                return false;
+            }
+            e.str_a = b.model_path;
+            e.str_b = b.lod_model_path;
+
+            uint32_t instance_count = 0;
+            if (!r.u32(instance_count) || instance_count > 100000) {
+                out.error = "invalid F3 type-2 instance count";
+                return false;
+            }
+
+            b.instances.reserve(instance_count);
+            for (uint32_t j = 0; j < instance_count; ++j) {
+                PropInstance p;
+                p.record_file_offset = static_cast<uint32_t>(r.i);
+                p.record_size = 3 + 8 + 20 * 4;
+                if (!r.u8(p.flags[0]) ||
+                    !r.u8(p.flags[1]) ||
+                    !r.u8(p.flags[2]) ||
+                    !r.u64(p.hash)) {
+                    out.error = "truncated F3 type-2 instance header";
+                    return false;
+                }
+                p.pos_file_offset = static_cast<uint32_t>(r.i);
+                p.lev_rec_kind = 1;
+                for (float& v : p.values) {
+                    if (!r.f32(v)) {
+                        out.error = "truncated F3 type-2 transform";
+                        return false;
+                    }
+                }
+                b.instances.push_back(p);
+            }
+            out.prop_blocks.push_back(std::move(b));
+            break;
+        }
+
+        case 4:
+        case 5:
+        case 32:
+            if (!r.cstr(e.str_a)) {
+                out.error = "truncated F3 string entry";
+                return false;
+            }
+            if (e.type == 4) {
+                if (!r.u64(e.resource_key)) {
+                    out.error = "truncated F3 type-4 resource key";
+                    return false;
+                }
+                e.has_resource_key = true;
+            }
+            break;
+
+        default:
+            out.error = "unsupported F3 LevelGraphicsFile entry type " +
+                        std::to_string(e.type) + " at 0x" +
+                        [&] {
+                            std::ostringstream s;
+                            s << std::hex << e.offset;
+                            return s.str();
+                        }();
+            return false;
+        }
+
         e.size = r.i - e.offset;
         out.entries.push_back(std::move(e));
     }
