@@ -6,6 +6,8 @@ bool Open(const FlatAssetEntry& entry)
         OutputLog::info("loading level '" + entry.name + "' ...");
     }
     loader_progress_update(8, 100, "Extracting " + entry.name);
+    OutputLog::warn("[LEVEL] Open: starting level load for '" + entry.name + "' from " + entry.full_path);
+    OutputLog::warn("[LEVEL] Open: extracting engine_level from BNK index " + std::to_string(entry.file_index));
 
     auto bail_if_cancelled = [&](const char* where) -> bool {
         if (!S.cancel_requested.load()) return false;
@@ -35,6 +37,7 @@ bool Open(const FlatAssetEntry& entry)
         OutputLog::error("level extract failed (unknown exception)");
         return false;
     }
+    OutputLog::warn("[LEVEL] Open: engine_level extraction returned " + std::to_string(bytes.size()) + " bytes");
     if (bytes.empty()) {
         OutputLog::error("level extract produced 0 bytes");
         return false;
@@ -43,11 +46,13 @@ bool Open(const FlatAssetEntry& entry)
 
     loader_progress_update(18, 100, "Parsing level entries...");
     EngineLevelInfo info;
+    OutputLog::warn("[LEVEL] Open: entering ParseEngineLevel");
     if (!ParseEngineLevel(bytes, info)) {
         OutputLog::error("parse failed for '" + entry.name + "': "
                          + info.error);
         return false;
     }
+    OutputLog::warn("[LEVEL] Open: ParseEngineLevel succeeded: version=" + std::to_string(info.version) + " entries=" + std::to_string(info.entries.size()) + "/" + std::to_string(info.entry_count));
     if (bail_if_cancelled("after-parse")) return false;
 
     info.source_path = entry.full_path;
