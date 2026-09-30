@@ -259,6 +259,24 @@
         return false;
     };
 
+    // The heightfield resolver runs before the later VFS reporting stage.
+    // Parse the level's own vfsconfig here as well so its streaming BNKs are
+    // available when .list resources are resolved.
+    if (g_level_vfs_streaming_bnks.empty()) {
+        std::vector<uint8_t> vfs_bytes;
+        std::filesystem::path vfs_path = entry.full_path;
+        vfs_path.replace_filename("level.vfsconfig");
+        if (load_text_sibling(vfs_path.string(), vfs_bytes)) {
+            const auto vfs = Level::ParseVfsConfig(vfs_bytes);
+            g_level_vfs_streaming_bnks = vfs.streaming_bnks;
+            if (!g_level_vfs_streaming_bnks.empty()) {
+                OutputLog::info("F3 resource graph: discovered " +
+                                std::to_string(g_level_vfs_streaming_bnks.size()) +
+                                " level streaming BNK(s) from level.vfsconfig");
+            }
+        }
+    }
+
     LevelResources res;
     {
         std::vector<uint8_t> list_bytes;
