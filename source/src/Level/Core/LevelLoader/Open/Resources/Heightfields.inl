@@ -122,6 +122,36 @@
             return true;
         }
 
+        // F3 level resources are commonly in a level-specific streaming BNK
+        // named by level.vfsconfig. Follow that resource graph before falling
+        // back to the global BNK set.
+        for (const auto& bnk_hint : g_level_vfs_streaming_bnks) {
+            std::string candidate = bnk_hint;
+            std::replace(candidate.begin(), candidate.end(), '\\', '/');
+            std::filesystem::path bp(candidate);
+            if (bp.is_relative()) {
+                std::filesystem::path base = std::filesystem::path(entry.bnk_path).parent_path();
+                candidate = (base / bp).string();
+            }
+            if (try_bnk_path(candidate, key, leaf)) {
+                OutputLog::info("F3 level resource resolved through streaming BNK: " + candidate);
+                return true;
+            }
+            const std::string leaf_hint = bp.filename().string();
+            for (const auto& mounted : S.nested_bnk_paths) {
+                std::string mounted_leaf = std::filesystem::path(mounted).filename().string();
+                std::transform(mounted_leaf.begin(), mounted_leaf.end(), mounted_leaf.begin(),
+                               [](unsigned char ch){ return std::tolower(ch); });
+                std::string wanted_leaf = leaf_hint;
+                std::transform(wanted_leaf.begin(), wanted_leaf.end(), wanted_leaf.begin(),
+                               [](unsigned char ch){ return std::tolower(ch); });
+                if (mounted_leaf == wanted_leaf && try_bnk_path(mounted, key, leaf)) {
+                    OutputLog::info("F3 level resource resolved through mounted streaming BNK: " + mounted);
+                    return true;
+                }
+            }
+        }
+
         for (const auto& fe : S.all_heightfield_files) {
             const std::string fe_full =
                 normalize_asset_key(fe.full_path.empty()
