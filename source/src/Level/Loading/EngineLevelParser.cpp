@@ -158,8 +158,8 @@ bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
             case 5:
             case 32: {
                 if (!r.cstr(e.str_a)) {
-                    out.error = "truncated reading string for type "
-                              + std::to_string(e.type);
+                    out.error = "truncated reading string for type " +
+                              std::to_string(e.type);
                     return false;
                 }
                 if (e.type == 4) {
@@ -454,7 +454,6 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes,
         case 2: {
             for (int i = 0; i < 4; ++i) {
                 if (!has_cstr(q, &a)) return false;
-                q = bytes.data() + q == nullptr ? q : q;
                 while (q < bytes.size() && bytes[q] != 0) ++q;
                 if (q >= bytes.size()) return false;
                 ++q;
@@ -579,7 +578,6 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes,
             out.prop_blocks.push_back(std::move(b));
             e.size = r.i - e.offset;
             out.entries.push_back(std::move(e));
-            --i;
             continue;
         }
 
