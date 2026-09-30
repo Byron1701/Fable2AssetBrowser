@@ -20,6 +20,9 @@ constexpr size_t kEngineLevelMagicLen = sizeof(kEngineLevelMagic) - 1;
 bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
                       EngineLevelInfo&            out)
 {
+    OutputLog::info("[LEVEL] ParseEngineLevel: received " +
+                    std::to_string(bytes.size()) + " bytes");
+
     // Fable II uses big-endian v11/v12; Fable III PC uses little-endian v13.
     // Detect the version from the bytes before entering either parser so the
     // F3 data never falls through to the legacy F2 reader.
@@ -32,12 +35,15 @@ bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
         const uint32_t le_version =
             uint32_t(bytes[o]) | (uint32_t(bytes[o + 1]) << 8) |
             (uint32_t(bytes[o + 2]) << 16) | (uint32_t(bytes[o + 3]) << 24);
-        if (le_version == 13 && be_version != 13)
+        if (le_version == 13 && be_version != 13) {
+            OutputLog::info("[LEVEL] Detected Fable III LevelGraphicsFile v13 (little-endian)");
             return ParseF3EngineLevel(bytes, out);
+        }
     }
     out = {};
     if (bytes.size() < kEngineLevelMagicLen + 8) {
         out.error = "file too small for header";
+        OutputLog::warn("[LEVEL] ParseEngineLevel failed: " + out.error);
         return false;
     }
 
@@ -45,15 +51,18 @@ bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
 
     if (std::memcmp(r.p, kEngineLevelMagic, kEngineLevelMagicLen) != 0) {
         out.error = "magic mismatch (expected \"LevelGraphicsFile\")";
+        OutputLog::warn("[LEVEL] ParseEngineLevel failed: " + out.error);
         return false;
     }
     if (!r.skip(kEngineLevelMagicLen)) {
         out.error = "truncated reading magic";
+        OutputLog::warn("[LEVEL] ParseEngineLevel failed: " + out.error);
         return false;
     }
 
     if (!r.u32(out.version)) {
         out.error = "truncated reading version";
+        OutputLog::warn("[LEVEL] ParseEngineLevel failed: " + out.error);
         return false;
     }
     if (out.version < 11 || out.version > 12) {
@@ -61,15 +70,18 @@ bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
         os << "unsupported version " << out.version
            << " (engine accepts 11..12)";
         out.error = os.str();
+        OutputLog::warn("[LEVEL] ParseEngineLevel failed: " + out.error);
         return false;
     }
 
     if (!r.u32(out.entry_count)) {
         out.error = "truncated reading entry_count";
+        OutputLog::warn("[LEVEL] ParseEngineLevel failed: " + out.error);
         return false;
     }
     if (out.entry_count > (1u << 20)) {
         out.error = "entry_count looks corrupt";
+        OutputLog::warn("[LEVEL] ParseEngineLevel failed: " + out.error);
         return false;
     }
     out.entries.reserve(out.entry_count);
