@@ -313,4 +313,65 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
     return true;
 }
 
+
+bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
+                        GhfHeights& out)
+{
+    out = {};
+    constexpr size_t kHeader = 28;
+    constexpr size_t kRecord = 14;
+    if (bytes.size() < kHeader) {
+        out.error = "F3 GHF too small";
+        return false;
+    }
+
+    auto le_u32 = [&](size_t o) -> uint32_t {
+        return uint32_t(bytes[o]) |
+               (uint32_t(bytes[o + 1]) << 8) |
+               (uint32_t(bytes[o + 2]) << 16) |
+               (uint32_t(bytes[o + 3]) << 24);
+    };
+    auto le_f32 = [&](size_t o) -> float {
+        uint32_t u = le_u32(o);
+        float f = 0.0f;
+        std::memcpy(&f, &u, sizeof(f));
+        return f;
+    };
+
+    const uint32_t w = le_u32(0x0C);
+    const uint32_t h = le_u32(0x10);
+    const uint64_t need = uint64_t(kHeader) + uint64_t(w) * uint64_t(h) * kRecord;
+    if (w < 2 || h < 2 || w > 8192 || h > 8192 || need > bytes.size()) {
+        out.error = "F3 GHF dimensions/body are invalid";
+        return false;
+    }
+
+    out.f3_format = true;
+    out.origin_x = le_f32(0x00);
+    out.origin_z = le_f32(0x04);
+    out.base_height = le_f32(0x14);
+    out.width = w;
+    out.height = h;
+    out.tile_size = 0.5f;
+    out.heights.resize(size_t(w) * size_t(h));
+    out.min_height = std::numeric_limits<float>::infinity();
+    out.max_height = -std::numeric_limits<float>::infinity();
+
+    for (size_t i = 0; i < out.heights.size(); ++i) {
+        const float v = le_f32(kHeader + i * kRecord);
+        if (!std::isfinite(v)) {
+            out.error = "F3 GHF contains non-finite elevation";
+            return false;
+        }
+        // The F3 GHF record float is the elevation sample itself. The
+        // +0x14 header field is metadata, not an additional height offset.
+        out.heights[i] = v;
+        out.min_height = std::min(out.min_height, v);
+        out.max_height = std::max(out.max_height, v);
+    }
+
+    out.ok = true;
+    return true;
+}
+
 }
