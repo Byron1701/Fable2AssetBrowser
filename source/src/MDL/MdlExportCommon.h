@@ -25,6 +25,23 @@ inline bool parse_model_for_export(const std::vector<unsigned char>& data,
                                    std::vector<MDLMeshGeom>& geoms,
                                    std::string& err_msg) {
     geoms.clear();
+
+    // Fable III has a completely different MDL layout.  The F3 reader is
+    // already responsible for decoding it; do not let the legacy Fable II
+    // reparsers or geometry reader see the F3 byte stream.
+    if (is_f3_mdl_buffer(data)) {
+        if (!parse_f3_mdl_info(data, info)) {
+            err_msg = "Failed to parse Fable III MDL";
+            return false;
+        }
+        if (!build_f3_mdl_geometry(data, geoms) || geoms.empty()) {
+            err_msg = "Failed to parse Fable III MDL geometry";
+            return false;
+        }
+        return true;
+    }
+
+    // Existing Fable II/older MDL path is deliberately unchanged.
     if (!parse_mdl_info(data, info, source_path)) {
         if (!reparse_mdl_missing_buffers_optstr(data, info) &&
             !reparse_mdl_as_foliage_48b(data, info)) {
