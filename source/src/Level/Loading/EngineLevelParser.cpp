@@ -11,6 +11,9 @@
 
 namespace Level {
 
+bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes,
+                        EngineLevelInfo& out);
+
 namespace {
 constexpr char kEngineLevelMagic[] = "LevelGraphicsFile";
 constexpr size_t kEngineLevelMagicLen = sizeof(kEngineLevelMagic) - 1;
