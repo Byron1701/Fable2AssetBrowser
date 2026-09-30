@@ -175,21 +175,77 @@ bool Reader::LooksLikeTexturePath(const std::string& s) {
            lower.find("/") != std::string::npos;
 }
 
-bool Reader::IsF3MDL(const std::vector<std::uint8_t>& bytes) {
-    // Fable III MDLs do not have the older ASCII "MeshFile" magic.  They
-    // begin with a 32-bit model hash followed by eight zero bytes.  This
-    // function is deliberately only a FORMAT IDENTIFIER: structural
-    // validation belongs in Parse().  Returning false here for a structurally
-    // unusual F3 file causes the caller to fall through to the legacy parser,
-    // which interprets the binary using an incompatible layout and can crash
-    // the Browser.
-    if (bytes.size() < 0x0c) return false;
+bool LooksLikeNativeF3Header(const std::vector<std::uint8_t>& bytes,
+                                  std::size_t off) {
+    if (off > bytes.size() || bytes.size() - off < 0x10) return false;
 
     for (std::size_t i = 4; i < 12; ++i) {
-        if (bytes[i] != 0) return false;
+        if (bytes[off + i] != 0) return false;
     }
 
+    auto u32 = [&](std::size_t p) -> std::uint32_t {
+        return static_cast<std::uint32_t>(bytes[p]) |
+               (static_cast<std::uint32_t>(bytes[p + 1]) << 8) |
+               (static_cast<std::uint32_t>(bytes[p + 2]) << 16) |
+               (static_cast<std::uint32_t>(bytes[p + 3]) << 24);
+    };
+
+    const std::size_t dummyPos = off + 12;
+    if (dummyPos >= bytes.size()) return false;
+    const std::uint8_t dummyCount = bytes[dummyPos];
+    if (dummyCount > 64) return false;
+
+    const std::size_t hierarchyCountPos =
+        dummyPos + 1 + static_cast<std::size_t>(dummyCount) * 8;
+    if (hierarchyCountPos + 4 > bytes.size()) return false;
+
+    const std::uint32_t hierarchyCount = u32(hierarchyCountPos);
+    if (hierarchyCount > 4096) return false;
+
+    const std::size_t boneCountPos =
+        hierarchyCountPos + 4 + static_cast<std::size_t>(hierarchyCount) * 8;
+    if (boneCountPos + 4 > bytes.size()) return false;
+
+    const std::uint32_t boneCount = u32(boneCountPos);
+    if (boneCount > 4096) return false;
+
+    const std::size_t postSkeleton =
+        boneCountPos + 4 + static_cast<std::size_t>(boneCount) * 44;
+    if (postSkeleton + 40 + 24 + 1 + 4 > bytes.size()) return false;
+
+    const std::uint32_t materialCount = u32(postSkeleton + 40);
+    const std::uint32_t staticMeshCount = u32(postSkeleton + 44);
+    const std::uint32_t skeletalMeshCount = u32(postSkeleton + 48);
+
+    if (materialCount > 256) return false;
+    if (staticMeshCount > 1024 || skeletalMeshCount > 1024) return false;
+    if (staticMeshCount + skeletalMeshCount == 0) return false;
+
     return true;
+}
+
+std::size_t FindF3PayloadOffset(const std::vector<std::uint8_t>& bytes) {
+    if (LooksLikeNativeF3Header(bytes, 0)) return 0;
+
+    static constexpr char kMeshFileMagic[] = "MeshFile/";
+    constexpr std::size_t kMagicSize = sizeof(kMeshFileMagic) - 1;
+
+    if (bytes.size() < kMagicSize ||
+        !std::equal(kMeshFileMagic, kMeshFileMagic + kMagicSize,
+                    bytes.begin())) {
+        return std::numeric_limits<std::size_t>::max();
+    }
+
+    const std::size_t searchEnd = std::min<std::size_t>(bytes.size(), 0x200);
+    for (std::size_t off = 0x10; off + 12 <= searchEnd; ++off) {
+        if (LooksLikeNativeF3Header(bytes, off)) return off;
+    }
+
+    return std::numeric_limits<std::size_t>::max();
+}
+
+bool Reader::IsF3MDL(const std::vector<std::uint8_t>& bytes) {
+    return FindF3PayloadOffset(bytes) != std::numeric_limits<std::size_t>::max();
 }
 
 bool Reader::Load(const std::string& path, std::string* error) {
@@ -218,7 +274,22 @@ bool Reader::Load(const std::string& path, std::string* error) {
 }
 
 bool Reader::Load(const std::vector<std::uint8_t>& bytes, std::string* error) {
-    bytes_ = bytes;
+    const std::size_t payloadOffset = FindF3PayloadOffset(bytes);
+    if (payloadOffset == std::numeric_limits<std::size_t>::max()) {
+        SetError(error, "Not recognised as a Fable III MDL");
+        return false;
+    }
+
+    if (payloadOffset == 0) {
+        bytes_ = bytes;
+    } else {
+        // MeshFile-wrapped exports contain the native F3 MDL after a small
+        // export header.  Strip the wrapper once so all downstream parsing
+        // remains byte-for-byte identical to a native F3 MDL.
+        bytes_.assign(bytes.begin() + static_cast<std::ptrdiff_t>(payloadOffset),
+                      bytes.end());
+    }
+
     try {
         return Parse(error);
     } catch (const std::exception& e) {
@@ -255,6 +326,25 @@ bool Reader::Parse(std::string* error) {
     header_.unknownMeshCount0 = ReadU32();
     header_.unknownMeshCount1 = ReadU32();
 
+    // These fields drive vector reservations and mesh iteration.  If the
+    // extracted body is incomplete or the preceding structure was decoded at
+    // the wrong offset, reject the file before a pathological allocation can
+    // reach the Browser's worker thread.
+    if (header_.materialCount > 4096) {
+        SetError(error, "Implausible F3 MDL material count");
+        return false;
+    }
+    if (header_.staticMeshCount > 4096 || header_.skeletalMeshCount > 4096 ||
+        header_.planeMeshCount > 4096 || header_.unknownMeshCount0 > 4096 ||
+        header_.unknownMeshCount1 > 4096) {
+        SetError(error, "Implausible F3 MDL mesh count");
+        return false;
+    }
+    if (header_.staticMeshCount > 4096 - header_.skeletalMeshCount) {
+        SetError(error, "Implausible F3 MDL render mesh count");
+        return false;
+    }
+
     if (!Skip(1, error)) return false; // header pad
 
     // Node table. These are hash strings, not the skeleton hierarchy.
@@ -266,7 +356,8 @@ bool Reader::Parse(std::string* error) {
 
     if (!ParseMaterials(error)) return false;
 
-    const std::uint32_t renderMeshCount = header_.staticMeshCount + header_.skeletalMeshCount;
+    const std::uint32_t renderMeshCount =
+        header_.staticMeshCount + header_.skeletalMeshCount;
     meshes_.reserve(renderMeshCount);
     for (std::uint32_t i = 0; i < renderMeshCount; ++i) {
         MDLMeshGeom mesh;
@@ -415,7 +506,8 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
     mesh.skeletal = skeletal;
 
     if (skeletal) {
-        mesh.name = "AnimatedObject"; // Keshire convention; source MDL has no mesh name here.
+        // Source MDL has no mesh name here; keep names unique per mesh.
+        mesh.name = "AnimatedObject_" + std::to_string(meshIndex);
     } else {
         mesh.name = ReadCString(error);
         if (error && !error->empty()) return false;
@@ -429,7 +521,7 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
     const std::uint32_t unknown = ReadU32();
     const std::uint32_t nVerts = ReadU32();
 
-    mesh.meshIndex = iMesh;
+    (void)iMesh; // keep the positional index set at the top of ParseMesh
     mesh.materialIndex = iMaterial;
 
     // Validate allocation-driving counts before touching the vectors.  A bad
@@ -447,9 +539,10 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
         return false;
     }
 
-    if (iMaterial >= materials_.size()) {
-        SetError(error, "F3 MDL mesh references invalid material index " + std::to_string(iMaterial));
-        return false;
+    // A bad material reference falls back to material 0 instead of failing
+    // the whole file.
+    if (mesh.materialIndex >= materials_.size()) {
+        mesh.materialIndex = 0;
     }
 
     if (!skeletal) mesh.origin = ReadFloat10();
@@ -522,7 +615,7 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
             const std::uint16_t hu = ReadU16();
             const std::uint16_t hv = ReadU16();
             v.position = {HalfToFloat(hx), HalfToFloat(hy), HalfToFloat(hz)};
-            v.uv = {HalfToFloat(hu), -HalfToFloat(hv)}; // Keshire convention
+            v.uv = {HalfToFloat(hu), HalfToFloat(hv)};
         }
     }
 
@@ -546,19 +639,15 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
 
     mesh.triangles.reserve(static_cast<std::size_t>(totalTris));
     for (std::uint64_t i = 0; i < totalTris; ++i) {
-        const std::int16_t a = ReadI16();
-        const std::int16_t b = ReadI16();
-        const std::int16_t c = ReadI16();
-        if (a < 0 || b < 0 || c < 0 ||
-            static_cast<std::uint32_t>(a) >= nVerts ||
-            static_cast<std::uint32_t>(b) >= nVerts ||
-            static_cast<std::uint32_t>(c) >= nVerts) {
+        // Indices are unsigned 16-bit; do not reject values >= 0x8000.
+        const std::uint16_t a = ReadU16();
+        const std::uint16_t b = ReadU16();
+        const std::uint16_t c = ReadU16();
+        if (a >= nVerts || b >= nVerts || c >= nVerts) {
             SetError(error, "F3 MDL contains an out-of-range triangle index");
             return false;
         }
-        mesh.triangles.push_back({static_cast<std::uint16_t>(a),
-                                  static_cast<std::uint16_t>(b),
-                                  static_cast<std::uint16_t>(c)});
+        mesh.triangles.push_back({a, b, c});
     }
 
     // Dynamic cloth follows the ordinary triangle list. We do not expose it
