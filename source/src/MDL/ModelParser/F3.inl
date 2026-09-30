@@ -1,7 +1,18 @@
+bool is_f3_mdl_buffer(const std::vector<unsigned char>& data)
+{
+    const std::vector<std::uint8_t> bytes(data.begin(), data.end());
+    if (F3MDL::Reader::IsF3MDL(bytes)) return true;
+    if (bytes.size() < 0x40) return false;
+    for (std::size_t i = 4; i < 12; ++i) {
+        if (bytes[i] != 0) return false;
+    }
+    return true;
+}
+
 // Fable III MDL adapter. The binary reader owns F3 parsing; this layer
 // translates its result into the Asset Browser's existing MDL structures.
 
-static bool parse_f3_mdl_info(const std::vector<unsigned char>& data,
+bool parse_f3_mdl_info(const std::vector<unsigned char>& data,
                               MDLInfo& out)
 {
     const std::vector<std::uint8_t> bytes(data.begin(), data.end());
@@ -55,8 +66,9 @@ static bool parse_f3_mdl_info(const std::vector<unsigned char>& data,
         if (m.materialIndex < mats.size()) {
             const auto& fm = mats[m.materialIndex];
             mat.DiffuseTexName  = fm.textures[0];
-            mat.NormalTexName   = fm.textures[1];
-            mat.SpecularTexName = fm.textures[2];
+            // Fable III material texture order is diffuse, specular, normal.
+            mat.SpecularTexName = fm.textures[1];
+            mat.NormalTexName   = fm.textures[2];
             mat.MetallicTexName = fm.textures[3];
             mat.ExtraTexName    = fm.textures[4];
         }
@@ -80,7 +92,7 @@ static bool parse_f3_mdl_info(const std::vector<unsigned char>& data,
     return true;
 }
 
-static bool build_f3_mdl_geometry(const std::vector<unsigned char>& data,
+bool build_f3_mdl_geometry(const std::vector<unsigned char>& data,
                                   std::vector<MDLMeshGeom>& out)
 {
     out.clear();
@@ -198,8 +210,8 @@ static bool build_f3_mdl_geometry(const std::vector<unsigned char>& data,
         if (m.materialIndex < mats.size()) {
             const auto& mat = mats[m.materialIndex];
             g.diffuse_tex_name  = mat.textures[0];
-            g.normal_tex_name   = mat.textures[1];
-            g.specular_tex_name = mat.textures[2];
+            g.specular_tex_name = mat.textures[1];
+            g.normal_tex_name   = mat.textures[2];
             g.metallic_tex_name = mat.textures[3];
             g.extra_tex_name    = mat.textures[4];
         }
