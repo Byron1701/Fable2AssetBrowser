@@ -143,6 +143,13 @@ bool build_mdl_buffer_for_name_with_body(const std::string& mdl_name,
                                          std::vector<unsigned char>& out);
 bool parse_mdl_info(const std::vector<unsigned char>& data, MDLInfo& out);
 bool parse_mdl_info(const std::vector<unsigned char>& data, MDLInfo& out, const std::string& file_path);
+
+// Fable III MDL format dispatch/geometry adapters. These feed the existing
+// Asset Browser MDL structures without changing the legacy Fable II parser.
+bool is_f3_mdl_buffer(const std::vector<unsigned char>& data);
+bool parse_f3_mdl_info(const std::vector<unsigned char>& data, MDLInfo& out);
+bool build_f3_mdl_geometry(const std::vector<unsigned char>& data, std::vector<MDLMeshGeom>& out);
+
 bool parse_mdl_geometry(const std::vector<unsigned char>& data, const MDLInfo& info, std::vector<MDLMeshGeom>& out);
 
 bool parse_mdl_cloth_blocks(const std::vector<unsigned char>& data, MDLInfo& info);
