@@ -42,6 +42,10 @@ struct GhfHeights {
     float                 min_height = 0.f;
     float                 max_height = 0.f;
     std::vector<float>    heights;
+    bool                  f3_format = false;
+    float                 origin_x = 0.0f;
+    float                 origin_z = 0.0f;
+    float                 base_height = 0.0f;
     std::string           error;
 };
 
@@ -71,5 +75,6 @@ struct TerrainMesh {
 };
 
 bool BuildTerrainMesh(const GhfHeights& heights, TerrainMesh& out);
+bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes, GhfHeights& out);
 
 }
