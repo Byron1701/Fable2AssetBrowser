@@ -1,3 +1,4 @@
+                        TerrainMeshTrace("Terrain caller: entering placement validation");
                         if (!g_pending_terrain_ghf_heights.empty() &&
                             g_pending_terrain_ghf_width > 0 &&
                             g_pending_terrain_ghf_height > 0)
@@ -48,3 +49,4 @@
                             }
                             OutputLog::info(gs.str());
                         }
+                        TerrainMeshTrace("Terrain caller: placement validation complete");
