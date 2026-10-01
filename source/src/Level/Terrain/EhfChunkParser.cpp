@@ -1,3 +1,4 @@
+#include "HeightfieldLoader.h"
 #include "EhfChunkParser.h"
 #include "TextureAtlasDecoder.h"
 
