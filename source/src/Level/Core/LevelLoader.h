@@ -151,6 +151,7 @@ extern Level::TerrainMesh g_pending_terrain_mesh;
 extern std::string        g_pending_terrain_label;
 extern FlatAssetEntry     g_pending_terrain_level_entry;
 extern std::vector<uint8_t> g_pending_terrain_ehf_bytes;
+extern bool g_pending_terrain_f3_ehf;
 extern Level::TerrainLightmap g_pending_terrain_lightmap;
 
 namespace Level {
