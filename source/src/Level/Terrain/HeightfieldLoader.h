@@ -78,6 +78,8 @@ struct TerrainMesh {
 
     float                 min_height = 0.f;
     float                 max_height = 0.f;
+    float                 origin_x = 0.f;
+    float                 origin_z = 0.f;
 };
 
 bool BuildTerrainMesh(const GhfHeights& heights, TerrainMesh& out);
