@@ -406,18 +406,14 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes,
         return false;
     }
 
-    // F3 v13 type-2 records are observed directly in the supplied
-    // defaultscenario.engine_level:
-    //   four C-strings
-    //   two reserved bytes (00 00)
+    // F3 v13 type-2 records observed in the supplied
+    // defaultscenario.engine_level are explicitly count-delimited:
+    //   three C-strings
+    //   uint32 instance count
     //   repeated 92-byte records:
     //     uint32 flags
     //     uint64 hash
     //     20 little-endian float32 values
-    //
-    // There is no 32-bit instance-count field here.  The end of a type-2
-    // block is the next top-level LevelGraphicsFile entry.  We therefore
-    // locate that boundary only at 92-byte record boundaries.
     auto read_entry_signature = [&](size_t pos) -> bool {
         if (pos + 4 > bytes.size()) return false;
         const uint32_t type =
@@ -504,10 +500,21 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes,
             b.offset = e.offset;
             b.type = e.type;
 
+            // The F3 v13 type-2 layout is:
+            //   type
+            //   model path (C-string)
+            //   shadow model path (C-string)
+            //   LOD model path (C-string)
+            //   uint32 instance count
+            //   instance_count * 92-byte records
+            //
+            // This is taken from the supplied F3 engine_level bytes.  In
+            // particular, there is no fourth C-string or signature-scanned
+            // block boundary here: the instance count gives the boundary
+            // explicitly.
             if (!r.cstr(b.model_path) ||
                 !r.cstr(b.shadow_model_path) ||
-                !r.cstr(b.lod_model_path) ||
-                !r.cstr(b.extra_model_path)) {
+                !r.cstr(b.lod_model_path)) {
                 out.error = "truncated F3 type-2 model paths";
                 return false;
             }
@@ -515,33 +522,27 @@ bool ParseF3EngineLevel(const std::vector<uint8_t>& bytes,
             e.str_a = b.model_path;
             e.str_b = b.lod_model_path;
 
-            if (!r.skip(2)) {
-                out.error = "truncated F3 type-2 reserved bytes";
+            uint32_t instance_count = 0;
+            if (!r.u32(instance_count)) {
+                out.error = "truncated F3 type-2 instance count";
+                return false;
+            }
+            if (instance_count > 1000000) {
+                out.error = "F3 type-2 instance count looks corrupt";
                 return false;
             }
 
             const size_t records_begin = r.i;
-            size_t next_entry = records_begin;
-            while (next_entry + 4 <= bytes.size()) {
-                if (next_entry != records_begin &&
-                    read_entry_signature(next_entry)) {
-                    break;
-                }
-                if (next_entry + 92 > bytes.size()) {
-                    next_entry = bytes.size();
-                    break;
-                }
-                next_entry += 92;
-            }
-
-            if (next_entry > bytes.size() ||
-                next_entry < records_begin ||
-                (next_entry - records_begin) % 92 != 0) {
-                out.error = "invalid F3 type-2 record block boundary";
+            const size_t records_bytes =
+                size_t(instance_count) * size_t(92);
+            if (records_begin > bytes.size() ||
+                records_bytes > bytes.size() - records_begin) {
+                out.error = "F3 type-2 record block exceeds file";
                 return false;
             }
 
-            const size_t record_count = (next_entry - records_begin) / 92;
+            const size_t next_entry = records_begin + records_bytes;
+            const size_t record_count = instance_count;
             b.instances.reserve(record_count);
 
             for (size_t j = 0; j < record_count; ++j) {
