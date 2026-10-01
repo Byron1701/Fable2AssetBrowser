@@ -4,6 +4,7 @@ Level::TerrainMesh  g_pending_terrain_mesh;
 std::string         g_pending_terrain_label;
 FlatAssetEntry      g_pending_terrain_level_entry;
 std::vector<uint8_t> g_pending_terrain_ehf_bytes;
+bool                  g_pending_terrain_f3_ehf = false;
 Level::TerrainLightmap g_pending_terrain_lightmap;
 std::vector<Level::PendingAdjacentTerrain> g_pending_adjacent_terrain_meshes;
 
