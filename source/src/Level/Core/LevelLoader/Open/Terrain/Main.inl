@@ -73,9 +73,16 @@
                     }
                 }
 
-                if (!decoded_f3_ehf && !hf.ghf_bytes_raw.empty() &&
-                    !DecodeF3GhfHeights(hf.ghf_bytes_raw, hg)) {
-                    OutputLog::error("  .ghf decode failed: " + hg.error);
+                bool decoded_heightfield = decoded_f3_ehf;
+                if (!decoded_heightfield && !hf.ghf_bytes_raw.empty()) {
+                    decoded_heightfield =
+                        DecodeF3GhfHeights(hf.ghf_bytes_raw, hg);
+                    if (!decoded_heightfield) {
+                        OutputLog::error("  .ghf decode failed: " + hg.error);
+                    }
+                }
+                if (!decoded_heightfield) {
+                    OutputLog::error("  no usable Fable III EHF/GHF height grid");
                 } else {
                     if (hg.tile_size <= 0.0f) {
                         const float ehf_tile = hf.ehf_header.ok
@@ -93,7 +100,10 @@
                     }
 
                     std::ostringstream gos;
-                    gos << "  .ghf heightmap: " << hg.width << "x" << hg.height
+                    gos << (decoded_f3_ehf
+                                ? "  Fable III EHF heightmap: "
+                                : "  .ghf heightmap: ")
+                        << hg.width << "x" << hg.height
                         << "  tile=" << hg.tile_size
                         << "  h=[" << hg.min_height << ".." << hg.max_height << "]";
                     OutputLog::success(gos.str());
