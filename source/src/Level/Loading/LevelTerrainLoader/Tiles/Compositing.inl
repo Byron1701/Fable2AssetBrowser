@@ -63,13 +63,34 @@ static bool DecodeEhfEmbeddedTileComposite(const std::vector<uint8_t>& ehf,
         terrain_vertices_h > 1 ? terrain_vertices_h - 1 : terrain_vertices_h;
     if (cells_w == 0 || cells_h == 0) return false;
 
+    TerrainMeshTrace("DecodeEhfEmbeddedTileComposite: before parse_ehf_render_tiles");
     std::vector<EhfRenderTileDesc> tiles;
     if (!parse_ehf_render_tiles(ehf, cells_w, tiles) || tiles.empty()) {
+        TerrainMeshTrace("DecodeEhfEmbeddedTileComposite: parse_ehf_render_tiles failed or returned no tiles");
         return false;
     }
+    {
+        std::ostringstream trace;
+        trace << "DecodeEhfEmbeddedTileComposite: parse_ehf_render_tiles returned "
+              << tiles.size() << " tiles";
+        TerrainMeshTrace(trace.str());
+    }
+
+    TerrainMeshTrace("DecodeEhfEmbeddedTileComposite: before collect_ehf_embedded_bc1_primaries");
     std::vector<EhfEmbeddedBc1Mip> primaries =
         collect_ehf_embedded_bc1_primaries(ehf);
-    if (primaries.size() < tiles.size()) return false;
+    {
+        std::ostringstream trace;
+        trace << "DecodeEhfEmbeddedTileComposite: collect_ehf_embedded_bc1_primaries returned "
+              << primaries.size() << " primaries";
+        TerrainMeshTrace(trace.str());
+    }
+    if (primaries.size() < tiles.size()) {
+        TerrainMeshTrace("DecodeEhfEmbeddedTileComposite: not enough BC1 primaries");
+        return false;
+    }
+
+    TerrainMeshTrace("DecodeEhfEmbeddedTileComposite: before embedded BC1 tile decode loop");
 
     struct DecodedTile {
         bool ok = false;
@@ -94,6 +115,12 @@ static bool DecodeEhfEmbeddedTileComposite(const std::vector<uint8_t>& ehf,
         }
         decoded[i] = std::move(dt);
         ++ok_count;
+    }
+    {
+        std::ostringstream trace;
+        trace << "DecodeEhfEmbeddedTileComposite: embedded BC1 tile decode loop complete; "
+              << ok_count << "/" << tiles.size() << " decoded";
+        TerrainMeshTrace(trace.str());
     }
     if (ok_count < std::max<size_t>(4, tiles.size() / 4)) return false;
 
