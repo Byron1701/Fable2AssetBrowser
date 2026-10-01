@@ -21,7 +21,25 @@
                             std::vector<Level::VistaPatchGeom> adj_patch_geoms;
                             bool used_vista_mesh = false;
                             bool used_ehf_render_mesh = false;
-                            {
+                            bool used_f3_ehf_mesh = false;
+
+                            if (!adj_hf.ehf_bytes.empty()) {
+                                TerrainMesh f3_ehf_mesh;
+                                GhfHeights f3_ehf_heights;
+                                if (DecodeF3EhfHeights(adj_hf.ehf_bytes,
+                                                       f3_ehf_heights)) {
+                                    if (BuildTerrainMesh(f3_ehf_heights,
+                                                         f3_ehf_mesh)) {
+                                        adj_mesh = std::move(f3_ehf_mesh);
+                                        used_f3_ehf_mesh = true;
+                                        OutputLog::info(
+                                            "adjacent terrain using Fable III "
+                                            "EHF patch grid: " + adj_ehf_path);
+                                    }
+                                }
+                            }
+                            if (!used_f3_ehf_mesh) {
+                                {
                                 std::string vista_stats;
                                 if (BuildEhfVistaPatchMesh(
                                         adj_hf.ehf_bytes, adj_mesh,
@@ -40,6 +58,7 @@
                                             "adjacent terrain per-patch geoms: " +
                                             geom_stats);
                                     }
+                                }
                                 }
                             }
 
