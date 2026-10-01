@@ -23,6 +23,7 @@
             S.cancel_requested.store(false);
             return;
         }
+        Level::TerrainMeshTrace("DX terrain handoff: entered pending terrain renderer");
         progress_update(72, 100, "Uploading terrain...");
         Level::TerrainMesh& tm = g_pending_terrain_mesh;
         if (!tm.ok || tm.indices.empty()) {
@@ -74,6 +75,7 @@
             std::string composite_name;
             std::vector<uint8_t> splat_dbg_rgba;
             int splat_dbg_w = 0, splat_dbg_h = 0;
+            Level::TerrainMeshTrace("DX terrain handoff: before texture baking");
             progress_update(74, 100, "Baking terrain textures...");
             
             
@@ -140,6 +142,7 @@
                 }
             }
 
+            Level::TerrainMeshTrace("DX terrain handoff: texture baking/selection complete");
             if (!picked_rgba.empty() && picked_w > 0 && picked_h > 0) {
                 GeneratedTerrainTexture gt;
                 gt.mesh_index = 0;
@@ -380,6 +383,7 @@
                 }
             }
 
+            Level::TerrainMeshTrace("DX terrain handoff: before MP_Build; geoms=" + std::to_string(geoms.size()));
             progress_update(78, 100, "Uploading terrain mesh...");
             if (g_mp.has_model) {
                 MP_Release(g_mp);
@@ -389,8 +393,11 @@
                 g_mp_initialized = true;
             }
             MP_Build(device, geoms, info, g_mp);
+            Level::TerrainMeshTrace("DX terrain handoff: after MP_Build; meshes=" + std::to_string(g_mp.meshes.size()));
             g_mp.no_tilt = true;
+            Level::TerrainMeshTrace("DX terrain handoff: before MP_BuildLevelFx");
             MP_BuildLevelFx(device, g_mp);
+            Level::TerrainMeshTrace("DX terrain handoff: after MP_BuildLevelFx");
             Skybox::PreviewBinding::ApplySkyTheme(
                 g_mp, g_pending_level_sky_theme);
             Skybox::PreviewBinding::ApplyCloudTheme(
@@ -508,6 +515,7 @@
                 OutputLog::info(tos.str());
             }
 
+            Level::TerrainMeshTrace("DX terrain handoff: before main terrain texture GPU setup");
             ID3D11ShaderResourceView* terrain_srv = nullptr;
             if (!picked_rgba.empty() && picked_w > 0 && picked_h > 0) {
                 terrain_srv = create_srv_from_rgba(device, picked_w,
@@ -750,6 +758,7 @@
 
             (void)splat_dbg_rgba; (void)splat_dbg_w; (void)splat_dbg_h;
 
+            Level::TerrainMeshTrace("DX terrain handoff: before LOD/material processing");
             {
                 progress_update(82, 100, "Preparing terrain materials...");
                 const std::string& preferred_bnk =
@@ -892,6 +901,7 @@
                 }
             }
 
+            Level::TerrainMeshTrace("DX terrain handoff: LOD/material processing complete");
             const size_t terrain_vert_count =
                 geoms.empty() ? 0 : geoms[0].positions.size() / 3;
             OutputLog::success("terrain '" + g_pending_terrain_label +
@@ -903,9 +913,11 @@
                 progress_done();
                 S.cancel_requested.store(false);
             } else {
+                Level::TerrainMeshTrace("DX terrain handoff: before start_level_prop_stream");
                 const bool props_started =
                     start_level_prop_stream(std::move(geoms),
                                             std::move(info));
+                Level::TerrainMeshTrace(std::string("DX terrain handoff: after start_level_prop_stream props_started=") + (props_started ? "true" : "false"));
                 if (props_started) {
                     g_level_prop_stream.terrain_textures =
                         std::move(generated_terrain_textures);
