@@ -260,9 +260,18 @@
             // Fable III uses its own LevelGraphicsFile/EHF pathway. Keep
             // these entries separate from the existing Fable II level catalogue.
             std::vector<std::pair<const FlatAssetEntry*, std::string>> f3_levels;
+            std::unordered_set<std::string> f3_seen_paths;
             for (const auto& e : S.all_level_files) {
                 const std::string p = norm(e.full_path);
                 if (p.rfind("worlds\\fable3\\", 0) != 0) continue;
+
+                // A F3 engine_level can be visible through more than one
+                // catalogue entry when the containing BNK is also exposed
+                // through a nested/mounted BNK.  The virtual asset path is
+                // the identity of the level; do not display the same level
+                // once per physical BNK representation.
+                if (!f3_seen_paths.insert(p).second) continue;
+
                 std::filesystem::path fp(e.full_path);
                 std::string parent = fp.parent_path().parent_path().filename().string();
                 if (parent.empty()) parent = fp.parent_path().filename().string();
