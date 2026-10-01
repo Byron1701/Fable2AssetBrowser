@@ -102,16 +102,29 @@
                         BuildTerrainMesh(*render_hg, mesh);
 #endif
                     if (!terrain_built) {
+                        TerrainMeshTrace("Terrain caller: BuildTerrainMesh returned false");
                         OutputLog::error("  terrain mesh build failed");
                     } else {
+                        TerrainMeshTrace("Terrain caller: BuildTerrainMesh returned true");
+                        TerrainMeshTrace("Terrain caller: before mesh size query");
                         const size_t tri_count = mesh.indices.size() / 3;
+                        TerrainMeshTrace("Terrain caller: after mesh size query");
+
                         std::ostringstream mos;
                         mos << "  terrain mesh: verts=" << (mesh.positions.size() / 3)
                             << "  tris=" << tri_count;
+                        TerrainMeshTrace("Terrain caller: before terrain mesh success log");
                         OutputLog::success(mos.str());
+                        TerrainMeshTrace("Terrain caller: after terrain mesh success log");
 
+                        TerrainMeshTrace("Terrain caller: before pending mesh move");
                         g_pending_terrain_mesh        = std::move(mesh);
+                        TerrainMeshTrace("Terrain caller: after pending mesh move");
                         g_pending_terrain_label       = entry.name;
+                        TerrainMeshTrace("Terrain caller: after pending terrain label");
                         g_pending_terrain_level_entry = entry;
+                        TerrainMeshTrace("Terrain caller: after pending terrain entry");
                         g_pending_terrain_ehf_bytes   = hf.ehf_bytes;
+                        TerrainMeshTrace("Terrain caller: after pending EHF bytes");
                         g_pending_adjacent_terrain_meshes.clear();
+                        TerrainMeshTrace("Terrain caller: after adjacent terrain clear");
