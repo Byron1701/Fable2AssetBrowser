@@ -119,6 +119,7 @@ bool skip_tex_blob(Walker& w) {
 bool ParseEhfBody(const std::vector<uint8_t>& ehf, EhfParsedBody& out)
 {
     out = {};
+    TerrainMeshTrace("ParseEhfBody: entered");
 
     if (ehf.size() < kHeaderLen ||
         std::memcmp(ehf.data(), kMagic, kMagicLen) != 0)
@@ -139,6 +140,7 @@ bool ParseEhfBody(const std::vector<uint8_t>& ehf, EhfParsedBody& out)
 
     if (!skip_tex_blob(w)) { out.error = "tex[0]: " + w.err; return false; }
     if (!skip_tex_blob(w)) { out.error = "tex[1]: " + w.err; return false; }
+    TerrainMeshTrace("ParseEhfBody: after initial texture blobs");
 
     float dummy_f;
     if (!w.f32(dummy_f)) { out.error = "float: " + w.err; return false; }
@@ -188,7 +190,9 @@ bool ParseEhfBody(const std::vector<uint8_t>& ehf, EhfParsedBody& out)
         out.bytes_consumed = cnt;
     }
     const uint32_t cnt_860e8 = uint32_t(out.bytes_consumed);
+    TerrainMeshTrace("ParseEhfBody: after 860E8 section");
 
+    TerrainMeshTrace("ParseEhfBody: before weight-mask section");
     while (w.pos + 4 <= w.n && be_u32(w.p + w.pos) == 0xFFFFFFFEu) {
         EhfPaintResource m;
         const size_t   ts = w.pos;
@@ -206,6 +210,7 @@ bool ParseEhfBody(const std::vector<uint8_t>& ehf, EhfParsedBody& out)
         if (!skip_tex_blob(w)) { out.error = "weight mask: " + w.err; return false; }
     }
 
+    TerrainMeshTrace("ParseEhfBody: after weight-mask section");
     uint32_t lc;
     if (!w.u32(lc)) { out.error = "LOD count read: " + w.err; return false; }
     if (lc > 200) { out.error = "LOD count implausible"; return false; }
@@ -248,6 +253,7 @@ bool ParseEhfBody(const std::vector<uint8_t>& ehf, EhfParsedBody& out)
         }
     }
 
+    TerrainMeshTrace("ParseEhfBody: after LOD section");
     uint32_t db0_cnt;
     if (!w.u32(db0_cnt)) { out.error = "85DB0 count"; return false; }
     if (db0_cnt > 32) { out.error = "85DB0 count implausible"; return false; }
@@ -286,6 +292,7 @@ bool ParseEhfBody(const std::vector<uint8_t>& ehf, EhfParsedBody& out)
         }
     }
 
+    TerrainMeshTrace("ParseEhfBody: after paint-resource section");
     if (!w.u32(out.chunk_w) || !w.u32(out.chunk_h)) {
         out.error = "chunk grid W/H: " + w.err;
         return false;
@@ -344,6 +351,7 @@ bool ParseEhfBody(const std::vector<uint8_t>& ehf, EhfParsedBody& out)
         }
     }
 
+    TerrainMeshTrace("ParseEhfBody: after chunk section");
     uint8_t flag;
     if (!w.u8(flag)) { out.error = "final flag"; return false; }
     for (uint32_t k = 0; k < cnt_860e8; ++k) {
@@ -369,6 +377,7 @@ bool ParseEhfBody(const std::vector<uint8_t>& ehf, EhfParsedBody& out)
     out.bytes_consumed = w.pos;
     out.bytes_remaining = w.n - w.pos;
     out.ok = true;
+    TerrainMeshTrace("ParseEhfBody: completed successfully");
     return true;
 }
 
