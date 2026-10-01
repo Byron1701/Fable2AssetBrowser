@@ -1,3 +1,4 @@
+    Level::TerrainMeshTrace("BakeEhfTerrainCompositeWithBnk: before composite paint loop");
     for (int y = 0; y < lm_h; ++y) {
         const float v_norm = (lm_h > 1)
             ? float(y) / float(lm_h - 1)
@@ -125,6 +126,7 @@
         }
     }
 
+    Level::TerrainMeshTrace("BakeEhfTerrainCompositeWithBnk: after composite paint loop");
     std::ostringstream os;
     os << "bake composite: " << lm_w << "x" << lm_h
        << " (chunk grid " << parsed.chunk_w << "x" << parsed.chunk_h
