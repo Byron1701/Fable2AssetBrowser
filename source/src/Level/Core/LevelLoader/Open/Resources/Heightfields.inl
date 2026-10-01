@@ -93,7 +93,46 @@
             if (idx < 0 && !leaf.empty()) {
                 idx = BnkCache::find_index(bnk_path, leaf);
             }
-            return try_extract(bnk_path, idx);
+            if (idx >= 0) return try_extract(bnk_path, idx);
+
+            // A LevelGraphicsFile path is rooted at worlds\\..., whereas
+            // the same resource inside a mounted streaming BNK is commonly
+            // stored relative to that mounted bank.  Match the complete
+            // internal path as a suffix before falling back to a filename.
+            try {
+                const auto bnk = BnkCache::get(bnk_path);
+                const std::string target = normalize_asset_key(key);
+                const std::string target_leaf = normalize_asset_key(leaf);
+                for (size_t i = 0; i < bnk.reader->list_files().size(); ++i) {
+                    const std::string internal =
+                        normalize_asset_key(bnk.reader->list_files()[i].name);
+                    if (!target.empty() &&
+                        (internal == target ||
+                         (target.size() > internal.size() &&
+                          target.compare(target.size() - internal.size(),
+                                         internal.size(), internal) == 0 &&
+                          target[target.size() - internal.size() - 1] == '/'))) {
+                        if (try_extract(bnk_path, int(i))) return true;
+                    }
+                }
+                // Filename fallback is deliberately last and is only used
+                // after the exact/suffix path checks above.
+                if (!target_leaf.empty()) {
+                    for (size_t i = 0; i < bnk.reader->list_files().size(); ++i) {
+                        const std::string internal =
+                            normalize_asset_key(bnk.reader->list_files()[i].name);
+                        const size_t slash = internal.find_last_of('/');
+                        const std::string internal_leaf =
+                            (slash == std::string::npos)
+                                ? internal : internal.substr(slash + 1);
+                        if (internal_leaf == target_leaf) {
+                            if (try_extract(bnk_path, int(i))) return true;
+                        }
+                    }
+                }
+            } catch (...) {
+            }
+            return false;
         };
         auto try_file = [&](const std::filesystem::path& p) -> bool
         {
@@ -118,37 +157,110 @@
         const std::string key = normalize_asset_key(sibling_full_path);
         const std::string leaf = filename_of_key(key);
 
-        if (try_bnk_path(entry.bnk_path, key, leaf)) {
-            return true;
+        // F3 LevelGraphicsFile references use the game's virtual data paths,
+        // while a level's companion streaming BNK is mounted separately.  Do
+        // not resolve a VFS path relative to the physical Levels.bnk
+        // directory: resolve it against the game's data root and the actual
+        // BNK catalogue, then match the referenced asset path against the
+        // internal path stored in that BNK.
+        std::vector<std::string> resource_bnks;
+        auto add_resource_bnk = [&](const std::string& path) {
+            if (path.empty()) return;
+            const std::string norm = normalize_asset_key(path);
+            for (const auto& existing : resource_bnks) {
+                if (normalize_asset_key(existing) == norm) return;
+            }
+            resource_bnks.push_back(path);
+        };
+
+        add_resource_bnk(entry.bnk_path);
+
+        auto add_data_root = [&](const std::string& path,
+                                 std::vector<std::filesystem::path>& roots) {
+            if (path.empty() || ISO::IsoMount::is_iso_path(path)) return;
+            std::string norm = path;
+            std::replace(norm.begin(), norm.end(), '\\', '/');
+            std::string low = norm;
+            std::transform(low.begin(), low.end(), low.begin(),
+                           [](unsigned char c){ return std::tolower(c); });
+            const size_t data_pos = low.find("/data/");
+            if (data_pos == std::string::npos) return;
+            std::filesystem::path root(norm.substr(0, data_pos));
+            for (const auto& existing : roots) {
+                if (existing == root) return;
+            }
+            roots.push_back(root);
+        };
+
+        std::vector<std::filesystem::path> data_roots;
+        add_data_root(S.root_dir, data_roots);
+        add_data_root(entry.bnk_path, data_roots);
+        for (const auto& p : S.bnk_paths) add_data_root(p, data_roots);
+        for (const auto& p : S.nested_bnk_paths) add_data_root(p, data_roots);
+
+        auto add_vfs_bnk = [&](const std::string& vfs_path) {
+            if (vfs_path.empty()) return;
+            const std::string vfs_key = normalize_asset_key(vfs_path);
+
+            // The VFS path is rooted at data\\, not at the directory
+            // containing Levels.bnk.
+            if (vfs_key.compare(0, 5, "data/") == 0) {
+                for (const auto& root : data_roots) {
+                    add_resource_bnk((root / std::filesystem::path(vfs_key)).string());
+                }
+            } else {
+                for (const auto& root : data_roots) {
+                    add_resource_bnk((root / "data" /
+                                      std::filesystem::path(vfs_key)).string());
+                }
+            }
+
+            // Prefer a BNK whose physical path maps exactly to the VFS
+            // virtual path.  This keeps similarly named level streaming
+            // banks from being cross-selected.
+            auto virtual_path_of = [&](const std::string& physical) {
+                std::string p = normalize_asset_key(physical);
+                const size_t data_pos = p.find("/data/");
+                if (data_pos != std::string::npos) {
+                    return p.substr(data_pos + 6);
+                }
+                return p;
+            };
+            for (const auto& p : S.bnk_paths) {
+                if (virtual_path_of(p) == vfs_key) add_resource_bnk(p);
+            }
+            for (const auto& p : S.nested_bnk_paths) {
+                if (virtual_path_of(p) == vfs_key) add_resource_bnk(p);
+            }
+
+            // Final catalogue fallback: the VFS names the mounted bank.  Use
+            // its filename only when it identifies a single available BNK.
+            const std::string wanted_leaf =
+                std::filesystem::path(vfs_key).filename().string();
+            std::vector<std::string> leaf_matches;
+            auto collect_leaf = [&](const std::vector<std::string>& paths) {
+                for (const auto& p : paths) {
+                    std::string leaf_name =
+                        normalize_asset_key(std::filesystem::path(p).filename().string());
+                    if (leaf_name == wanted_leaf) leaf_matches.push_back(p);
+                }
+            };
+            collect_leaf(S.bnk_paths);
+            collect_leaf(S.nested_bnk_paths);
+            if (leaf_matches.size() == 1) add_resource_bnk(leaf_matches.front());
+        };
+
+        for (const auto& bnk_hint : g_level_vfs_streaming_bnks) {
+            add_vfs_bnk(bnk_hint);
         }
 
-        // F3 level resources are commonly in a level-specific streaming BNK
-        // named by level.vfsconfig. Follow that resource graph before falling
-        // back to the global BNK set.
-        for (const auto& bnk_hint : g_level_vfs_streaming_bnks) {
-            std::string candidate = bnk_hint;
-            std::replace(candidate.begin(), candidate.end(), '\\', '/');
-            std::filesystem::path bp(candidate);
-            if (bp.is_relative()) {
-                std::filesystem::path base = std::filesystem::path(entry.bnk_path).parent_path();
-                candidate = (base / bp).string();
-            }
-            if (try_bnk_path(candidate, key, leaf)) {
-                OutputLog::info("F3 level resource resolved through streaming BNK: " + candidate);
-                return true;
-            }
-            const std::string leaf_hint = bp.filename().string();
-            for (const auto& mounted : S.nested_bnk_paths) {
-                std::string mounted_leaf = std::filesystem::path(mounted).filename().string();
-                std::transform(mounted_leaf.begin(), mounted_leaf.end(), mounted_leaf.begin(),
-                               [](unsigned char ch){ return std::tolower(ch); });
-                std::string wanted_leaf = leaf_hint;
-                std::transform(wanted_leaf.begin(), wanted_leaf.end(), wanted_leaf.begin(),
-                               [](unsigned char ch){ return std::tolower(ch); });
-                if (mounted_leaf == wanted_leaf && try_bnk_path(mounted, key, leaf)) {
-                    OutputLog::info("F3 level resource resolved through mounted streaming BNK: " + mounted);
-                    return true;
+        for (const auto& bnk_path : resource_bnks) {
+            if (try_bnk_path(bnk_path, key, leaf)) {
+                if (normalize_asset_key(bnk_path) !=
+                    normalize_asset_key(entry.bnk_path)) {
+                    OutputLog::info("F3 level resource resolved from associated BNK: " + bnk_path);
                 }
+                return true;
             }
         }
 
