@@ -52,10 +52,29 @@
                 << " -> " << hf.ghf_bytes_raw.size() << "B (raw)";
             OutputLog::success(hos.str());
 
-            if (!hf.ghf_bytes_raw.empty()) {
+            {
                 GhfHeights hg;
+                bool decoded_f3_ehf = false;
                 loader_progress_update(45, 100, "Decoding height grid...");
-                if (!DecodeF3GhfHeights(hf.ghf_bytes_raw, hg)) {
+
+                if (!hf.ehf_bytes.empty()) {
+                    decoded_f3_ehf = DecodeF3EhfHeights(hf.ehf_bytes, hg);
+                    if (decoded_f3_ehf) {
+                        OutputLog::success(
+                            "  Fable III EHF patch grid: " +
+                            std::to_string(hg.width) + "x" +
+                            std::to_string(hg.height) +
+                            " patches=" +
+                            std::to_string((hg.width - 1) / 32) + "x" +
+                            std::to_string((hg.height - 1) / 32) +
+                            " spacing=" + std::to_string(hg.tile_size) +
+                            " origin=(" + std::to_string(hg.origin_x) +
+                            "," + std::to_string(hg.origin_z) + ")");
+                    }
+                }
+
+                if (!decoded_f3_ehf && !hf.ghf_bytes_raw.empty() &&
+                    !DecodeF3GhfHeights(hf.ghf_bytes_raw, hg)) {
                     OutputLog::error("  .ghf decode failed: " + hg.error);
                 } else {
                     if (hg.tile_size <= 0.0f) {
