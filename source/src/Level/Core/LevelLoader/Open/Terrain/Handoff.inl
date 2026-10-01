@@ -76,4 +76,3 @@
     TerrainMeshTrace("Terrain caller: before return true");
     return true;
 }
-                        TerrainMeshTrace("Terrain caller: handoff stage complete");
