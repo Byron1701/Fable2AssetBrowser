@@ -60,6 +60,9 @@ bool LoadHeightfieldFiles(const std::string& ehf_path,
 bool DecodeGhfHeights(const std::vector<uint8_t>& ghf_bytes_raw,
                       GhfHeights&                 out);
 
+bool DecodeF3GhfHeights(const std::vector<uint8_t>& ghf_bytes_raw,
+                        GhfHeights&                 out);
+
 struct TerrainMesh {
     bool                  ok = false;
     uint32_t              width  = 0;
