@@ -109,10 +109,10 @@
                     std::string("DX terrain texture: after BakeEhfTerrainCompositeAndSplat result=") +
                     (baked_ehf_composite ? "true" : "false"));
                 if (baked_ehf_composite) {
-                picked_label = (composite_name == "embedded_tile_albedo")
-                    ? std::string("ehf_embedded_tile_albedo")
-                    : "ehf_composite[" + composite_name + "]";
-                uv_scale     = 1.0f;
+                    picked_label = (composite_name == "embedded_tile_albedo")
+                        ? std::string("ehf_embedded_tile_albedo")
+                        : "ehf_composite[" + composite_name + "]";
+                    uv_scale = 1.0f;
                 } else {
                     Level::TerrainMeshTrace("DX terrain texture: before DecodeEhfTerrainAlbedoFromBytes");
                     const bool decoded_ehf_albedo =
@@ -125,45 +125,47 @@
                         std::string("DX terrain texture: after DecodeEhfTerrainAlbedoFromBytes result=") +
                         (decoded_ehf_albedo ? "true" : "false"));
                     if (decoded_ehf_albedo) {
-                picked_label = "ehf_baked_albedo";
-                uv_scale     = 1.0f;
-            } else {
-                std::vector<uint8_t> pal_rgba;
-                int pal_w = 0, pal_h = 0;
-                float pal_tile_scale = 0.125f;
-                std::string pal_name;
-                    Level::TerrainMeshTrace("DX terrain texture: before DecodeEhfPaletteFirstDiffuse");
-                    const bool decoded_ehf_palette =
-                        Level::DecodeEhfPaletteFirstDiffuse(
-                            g_pending_terrain_ehf_bytes,
-                            pal_rgba, pal_w, pal_h,
-                            pal_tile_scale, pal_name);
-                    Level::TerrainMeshTrace(
-                        std::string("DX terrain texture: after DecodeEhfPaletteFirstDiffuse result=") +
-                        (decoded_ehf_palette ? "true" : "false"));
-                    if (decoded_ehf_palette) {
-                    picked_rgba  = std::move(pal_rgba);
-                    picked_w     = pal_w;
-                    picked_h     = pal_h;
-                    picked_label = "ehf_palette[" + pal_name + "]";
-                    uv_scale = 16.0f;
-                } else {
-                    std::vector<uint8_t> atlas_rgba;
-                    int atlas_w = 0, atlas_h = 0;
-                    Level::TerrainMeshTrace("DX terrain texture: before DecodeLevelTextureAtlas");
-                    const bool decoded_texture_atlas =
-                        Level::DecodeLevelTextureAtlas(
-                            g_pending_terrain_level_entry,
-                            atlas_rgba, atlas_w, atlas_h);
-                    Level::TerrainMeshTrace(
-                        std::string("DX terrain texture: after DecodeLevelTextureAtlas result=") +
-                        (decoded_texture_atlas ? "true" : "false"));
-                    if (decoded_texture_atlas) {
-                        picked_rgba  = std::move(atlas_rgba);
-                        picked_w     = atlas_w;
-                        picked_h     = atlas_h;
-                        picked_label = "texture_atlas_fallback";
-                        uv_scale     = 32.0f;
+                        picked_label = "ehf_baked_albedo";
+                        uv_scale = 1.0f;
+                    } else {
+                        std::vector<uint8_t> pal_rgba;
+                        int pal_w = 0, pal_h = 0;
+                        float pal_tile_scale = 0.125f;
+                        std::string pal_name;
+                        Level::TerrainMeshTrace("DX terrain texture: before DecodeEhfPaletteFirstDiffuse");
+                        const bool decoded_ehf_palette =
+                            Level::DecodeEhfPaletteFirstDiffuse(
+                                g_pending_terrain_ehf_bytes,
+                                pal_rgba, pal_w, pal_h,
+                                pal_tile_scale, pal_name);
+                        Level::TerrainMeshTrace(
+                            std::string("DX terrain texture: after DecodeEhfPaletteFirstDiffuse result=") +
+                            (decoded_ehf_palette ? "true" : "false"));
+                        if (decoded_ehf_palette) {
+                            picked_rgba = std::move(pal_rgba);
+                            picked_w = pal_w;
+                            picked_h = pal_h;
+                            picked_label = "ehf_palette[" + pal_name + "]";
+                            uv_scale = 16.0f;
+                        } else {
+                            std::vector<uint8_t> atlas_rgba;
+                            int atlas_w = 0, atlas_h = 0;
+                            Level::TerrainMeshTrace("DX terrain texture: before DecodeLevelTextureAtlas");
+                            const bool decoded_texture_atlas =
+                                Level::DecodeLevelTextureAtlas(
+                                    g_pending_terrain_level_entry,
+                                    atlas_rgba, atlas_w, atlas_h);
+                            Level::TerrainMeshTrace(
+                                std::string("DX terrain texture: after DecodeLevelTextureAtlas result=") +
+                                (decoded_texture_atlas ? "true" : "false"));
+                            if (decoded_texture_atlas) {
+                                picked_rgba = std::move(atlas_rgba);
+                                picked_w = atlas_w;
+                                picked_h = atlas_h;
+                                picked_label = "texture_atlas_fallback";
+                                uv_scale = 32.0f;
+                            }
+                        }
                     }
                 }
             }
