@@ -344,6 +344,8 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
     out.height = H;
     out.min_height = hg.min_height;
     out.max_height = hg.max_height;
+    out.origin_x = hg.f3_format ? hg.origin_x : 0.0f;
+    out.origin_z = hg.f3_format ? hg.origin_z : 0.0f;
 
     try {
         TerrainMeshTrace("BuildTerrainMesh: before positions.resize");
@@ -378,9 +380,9 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
     for (uint32_t y = 0; y < H; ++y) {
         for (uint32_t x = 0; x < W; ++x) {
             const size_t i = size_t(y) * W + x;
-            out.positions[i * 3 + 0] = float(x) * tile;
+            out.positions[i * 3 + 0] = hg.origin_x + float(x) * tile;
             out.positions[i * 3 + 1] = hg.heights[i];
-            out.positions[i * 3 + 2] = float(y) * tile;
+            out.positions[i * 3 + 2] = hg.origin_z + float(y) * tile;
             out.uvs[i * 2 + 0]       = float(x) * tile * kUvRepeatsPerWu;
             out.uvs[i * 2 + 1]       = float(y) * tile * kUvRepeatsPerWu;
         }
