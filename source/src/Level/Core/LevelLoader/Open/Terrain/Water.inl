@@ -1,3 +1,4 @@
+                        TerrainMeshTrace("Terrain caller: entering water stage");
                         g_pending_level_water_present = false;
                         g_pending_level_water_scene = Level::WaterScene{};
                         g_pending_level_water_theme = Gdb::WaterTheme{};
@@ -88,3 +89,4 @@
                                     water_candidates.front());
                             }
                         }
+                        TerrainMeshTrace("Terrain caller: water stage complete");
