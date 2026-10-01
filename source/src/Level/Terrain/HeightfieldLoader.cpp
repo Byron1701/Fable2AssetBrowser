@@ -264,20 +264,41 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
     }
     const size_t tris = (w - 1) * (h - 1) * 2;
 
-    const size_t position_floats = N * 3;
-    const size_t normal_floats   = N * 3;
-    const size_t uv_floats       = N * 2;
-    const size_t index_values    = tris * 3;
-
     if (N > std::numeric_limits<size_t>::max() / 3 ||
         tris > std::numeric_limits<size_t>::max() / 3) {
         OutputLog::error("  terrain mesh build rejected: allocation-size overflow");
         return false;
     }
 
-    const size_t mesh_bytes =
-        (position_floats + normal_floats + uv_floats) * sizeof(float) +
-        index_values * sizeof(uint32_t);
+    const size_t position_floats = N * 3;
+    const size_t normal_floats   = N * 3;
+    const size_t uv_floats       = N * 2;
+    const size_t index_values    = tris * 3;
+
+    if (position_floats > std::numeric_limits<size_t>::max() - normal_floats ||
+        position_floats + normal_floats >
+            std::numeric_limits<size_t>::max() - uv_floats) {
+        OutputLog::error("  terrain mesh build rejected: float-count overflow");
+        return false;
+    }
+    const size_t total_float_values =
+        position_floats + normal_floats + uv_floats;
+
+    if (total_float_values >
+            std::numeric_limits<size_t>::max() / sizeof(float) ||
+        index_values >
+            std::numeric_limits<size_t>::max() / sizeof(uint32_t)) {
+        OutputLog::error("  terrain mesh build rejected: byte-size overflow");
+        return false;
+    }
+
+    const size_t float_bytes = total_float_values * sizeof(float);
+    const size_t index_bytes = index_values * sizeof(uint32_t);
+    if (float_bytes > std::numeric_limits<size_t>::max() - index_bytes) {
+        OutputLog::error("  terrain mesh build rejected: total-byte overflow");
+        return false;
+    }
+    const size_t mesh_bytes = float_bytes + index_bytes;
 
     OutputLog::info(
         "  terrain mesh allocation: grid=" + std::to_string(W) + "x" +
