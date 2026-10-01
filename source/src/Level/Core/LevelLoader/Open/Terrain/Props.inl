@@ -1,3 +1,4 @@
+                        TerrainMeshTrace("Terrain caller: entering terrain props stage");
                         {
                             std::vector<LevelEdit::Addition> adds;
                             LevelEdit::GetAdditions(adds);
@@ -101,3 +102,4 @@
                                     " placed model(s)");
                             }
                         }
+                        TerrainMeshTrace("Terrain caller: terrain props stage complete");
