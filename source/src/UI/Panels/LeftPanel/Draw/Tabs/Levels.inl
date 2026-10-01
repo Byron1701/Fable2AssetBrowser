@@ -138,6 +138,40 @@
                 }
             }
 
+            // Fable III uses its own LevelGraphicsFile/EHF pathway. Keep
+            // these entries separate from the existing Fable II level catalogue.
+            std::vector<std::pair<const FlatAssetEntry*, std::string>> f3_levels;
+            for (const auto& e : S.all_level_files) {
+                const std::string p = norm(e.full_path);
+                if (p.rfind("worlds\\fable3\\", 0) != 0) continue;
+                std::filesystem::path fp(e.full_path);
+                std::string parent = fp.parent_path().parent_path().filename().string();
+                if (parent.empty()) parent = fp.parent_path().filename().string();
+                std::string label = parent.empty() ? e.name : parent;
+                if (!matches_filter(label, e.full_path)) continue;
+                f3_levels.push_back({&e, std::move(label)});
+            }
+            std::sort(f3_levels.begin(), f3_levels.end(),
+                      [](const auto& a, const auto& b) {
+                          return a.second < b.second ||
+                                 (a.second == b.second &&
+                                  a.first->full_path < b.first->full_path);
+                      });
+            if (!f3_levels.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                    ImVec4(0.35f, 0.75f, 1.0f, 1.0f));
+                ImGui::TextUnformatted("Fable III Levels");
+                ImGui::PopStyleColor();
+                ImGui::Indent(8.0f);
+                for (const auto& [e, friendly] : f3_levels) {
+                    draw_entry(*e, friendly);
+                    placed.insert(e);
+                    placed_paths.insert(norm(e->full_path));
+                }
+                ImGui::Unindent(8.0f);
+                ImGui::Spacing();
+            }
+
             {
                 const bool new_level_busy =
                     Level::IsAsyncLoadInProgress() ||
