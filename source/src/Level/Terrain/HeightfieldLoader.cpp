@@ -9,11 +9,31 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <limits>
+#include <mutex>
 
 namespace Level {
 
 namespace {
+
+void TerrainMeshTrace(const std::string& message) noexcept {
+    try {
+        static std::mutex mutex;
+        std::lock_guard<std::mutex> lock(mutex);
+        std::error_code ec;
+        const std::filesystem::path path =
+            std::filesystem::temp_directory_path(ec) /
+            "Fable3AssetBrowser_TerrainMeshTrace.txt";
+        if (ec) return;
+        std::ofstream stream(path, std::ios::out | std::ios::app);
+        if (!stream) return;
+        stream << message << '\n';
+        stream.flush();
+    } catch (...) {
+    }
+}
 
 uint32_t be_u32(const uint8_t* p) {
     return  (uint32_t(p[0]) << 24)
@@ -234,9 +254,11 @@ bool DecodeGhfHeights(const std::vector<uint8_t>& bytes, GhfHeights& out)
 
 bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
 {
+    TerrainMeshTrace("BuildTerrainMesh: entered");
     out = {};
     if (!hg.ok || hg.width < 2 || hg.height < 2 ||
         hg.heights.size() != size_t(hg.width) * size_t(hg.height)) {
+        TerrainMeshTrace("BuildTerrainMesh: rejected invalid height grid");
         OutputLog::error("  terrain mesh build rejected: invalid height grid");
         return false;
     }
@@ -264,6 +286,7 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
         return false;
     }
     const size_t tris = (w - 1) * (h - 1) * 2;
+    TerrainMeshTrace("BuildTerrainMesh: counts grid=" + std::to_string(W) + "x" + std::to_string(H) + " verts=" + std::to_string(N) + " tris=" + std::to_string(tris));
 
     if (N > std::numeric_limits<size_t>::max() / 3 ||
         tris > std::numeric_limits<size_t>::max() / 3) {
@@ -301,6 +324,8 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
     }
     const size_t mesh_bytes = float_bytes + index_bytes;
 
+    TerrainMeshTrace("BuildTerrainMesh: allocation bytes=" + std::to_string(mesh_bytes));
+
     OutputLog::info(
         "  terrain mesh allocation: grid=" + std::to_string(W) + "x" +
         std::to_string(H) +
@@ -323,10 +348,18 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
     out.max_height = hg.max_height;
 
     try {
+        TerrainMeshTrace("BuildTerrainMesh: before positions.resize");
         out.positions.resize(position_floats);
+        TerrainMeshTrace("BuildTerrainMesh: after positions.resize");
+        TerrainMeshTrace("BuildTerrainMesh: before normals.resize");
         out.normals.resize  (normal_floats);
+        TerrainMeshTrace("BuildTerrainMesh: after normals.resize");
+        TerrainMeshTrace("BuildTerrainMesh: before uvs.resize");
         out.uvs.resize      (uv_floats);
+        TerrainMeshTrace("BuildTerrainMesh: after uvs.resize");
+        TerrainMeshTrace("BuildTerrainMesh: before indices.resize");
         out.indices.resize  (index_values);
+        TerrainMeshTrace("BuildTerrainMesh: after indices.resize");
     } catch (const std::bad_alloc&) {
         OutputLog::error(
             "  terrain mesh build failed: std::bad_alloc while allocating " +
@@ -340,6 +373,8 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
         out = {};
         return false;
     }
+
+    TerrainMeshTrace("BuildTerrainMesh: allocations complete; entering vertex loop");
 
     constexpr float kUvRepeatsPerWu = 0.125f;
     for (uint32_t y = 0; y < H; ++y) {
@@ -395,6 +430,7 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
         }
     }
 
+    TerrainMeshTrace("BuildTerrainMesh: completed successfully");
     out.ok = true;
     return true;
 }
