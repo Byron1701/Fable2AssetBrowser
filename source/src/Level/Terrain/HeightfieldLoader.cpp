@@ -1,6 +1,7 @@
 #include "HeightfieldLoader.h"
 
 #include "Utilities/State.h"
+#include "UI/OutputLog.h"
 #include "BNKCore.cpp"
 
 #include <zlib.h>
