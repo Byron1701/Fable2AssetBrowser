@@ -55,7 +55,7 @@
             if (!hf.ghf_bytes_raw.empty()) {
                 GhfHeights hg;
                 loader_progress_update(45, 100, "Decoding height grid...");
-                if (!DecodeGhfHeights(hf.ghf_bytes_raw, hg)) {
+                if (!DecodeF3GhfHeights(hf.ghf_bytes_raw, hg)) {
                     OutputLog::error("  .ghf decode failed: " + hg.error);
                 } else {
                     if (hg.tile_size <= 0.0f) {
