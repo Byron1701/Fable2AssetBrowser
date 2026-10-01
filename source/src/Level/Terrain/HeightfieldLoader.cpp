@@ -141,6 +141,51 @@ void parse_ehf_header(const std::vector<uint8_t>& bytes,
     if (std::memcmp(bytes.data(), kMagic, kMagicLen) != 0) return;
 
     const uint8_t* p = bytes.data();
+
+    // Fable III PC EHF is a separate little-endian header layout.
+    // Recognise it here without changing the existing Fable II branch below.
+    auto le_u32_local = [&](size_t off) -> uint32_t {
+        return uint32_t(bytes[off]) |
+               (uint32_t(bytes[off + 1]) << 8) |
+               (uint32_t(bytes[off + 2]) << 16) |
+               (uint32_t(bytes[off + 3]) << 24);
+    };
+    auto le_f32_local = [&](size_t off) -> float {
+        uint32_t u = le_u32_local(off);
+        float f = 0.0f;
+        std::memcpy(&f, &u, sizeof(f));
+        return f;
+    };
+    if (bytes.size() >= 0x47) {
+        const uint32_t f3_w = le_u32_local(0x23);
+        const uint32_t f3_h = le_u32_local(0x27);
+        const float f3_spacing = le_f32_local(0x2B);
+        const float f3_pcx = le_f32_local(0x37);
+        const float f3_pcy = le_f32_local(0x3B);
+        const float f3_cells_x = le_f32_local(0x3F);
+        const float f3_cells_y = le_f32_local(0x43);
+        if (f3_w >= 2 && f3_w <= 8192 &&
+            f3_h >= 2 && f3_h <= 8192 &&
+            std::isfinite(f3_spacing) && f3_spacing > 0.0f &&
+            (f3_w - 1) % 32 == 0 && (f3_h - 1) % 32 == 0 &&
+            std::fabs(f3_pcx - float((f3_w - 1) / 32)) < 1e-4f &&
+            std::fabs(f3_pcy - float((f3_h - 1) / 32)) < 1e-4f &&
+            std::fabs(f3_cells_x - 32.0f) < 1e-4f &&
+            std::fabs(f3_cells_y - 32.0f) < 1e-4f) {
+            out.magic.assign(kMagic);
+            out.version = le_u32_local(0x17);
+            out.f0 = le_f32_local(0x1B);
+            out.f1 = le_f32_local(0x1F);
+            out.u0 = f3_w;
+            out.u1 = f3_h;
+            out.f2 = f3_spacing;
+            out.body_offset = 0x47;
+            out.body_size = uint32_t(bytes.size() - 0x47);
+            out.ok = true;
+            return;
+        }
+    }
+
     out.magic.assign(kMagic);
     out.version      = be_u32(p + kMagicLen);
     out.prefix_float = be_f32(p + kMagicLen + 4);
