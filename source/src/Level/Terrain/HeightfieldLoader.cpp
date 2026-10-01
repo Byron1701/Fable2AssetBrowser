@@ -494,4 +494,188 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
     return true;
 }
 
+bool DecodeF3EhfHeights(const std::vector<uint8_t>& bytes,
+                        GhfHeights& out)
+{
+    out = {};
+    constexpr char kMagic[] = "HeightFieldGraphicsFile";
+    constexpr size_t kMagicLen = sizeof(kMagic) - 1;
+    constexpr size_t kHeader = 0x47;
+    constexpr size_t kPatchStride = 10440;
+    constexpr uint32_t kPatchCells = 32;
+    constexpr uint32_t kPatchWidth = 33;
+    constexpr uint32_t kPatchHeight = 33;
+    constexpr size_t kPatchHeader = 32;
+    constexpr size_t kVertexStride = 8;
+
+    if (bytes.size() < kHeader ||
+        std::memcmp(bytes.data(), kMagic, kMagicLen) != 0) {
+        out.error = "F3 EHF magic/header mismatch";
+        return false;
+    }
+
+    auto le_u32 = [&](size_t o) -> uint32_t {
+        return uint32_t(bytes[o]) |
+               (uint32_t(bytes[o + 1]) << 8) |
+               (uint32_t(bytes[o + 2]) << 16) |
+               (uint32_t(bytes[o + 3]) << 24);
+    };
+    auto le_f32 = [&](size_t o) -> float {
+        uint32_t u = le_u32(o);
+        float f = 0.0f;
+        std::memcpy(&f, &u, sizeof(f));
+        return f;
+    };
+
+    const float origin_x = le_f32(0x1B);
+    const float origin_z = le_f32(0x1F);
+    const uint32_t width = le_u32(0x23);
+    const uint32_t height = le_u32(0x27);
+    const float spacing = le_f32(0x2B);
+    const float patch_count_x_f = le_f32(0x37);
+    const float patch_count_y_f = le_f32(0x3B);
+    const float patch_cells_x = le_f32(0x3F);
+    const float patch_cells_y = le_f32(0x43);
+
+    if (!std::isfinite(origin_x) || !std::isfinite(origin_z) ||
+        !std::isfinite(spacing) || spacing <= 0.0f ||
+        width < 2 || height < 2 || width > 8192 || height > 8192) {
+        out.error = "F3 EHF file-level fields are invalid";
+        return false;
+    }
+    if ((width - 1) % kPatchCells != 0 ||
+        (height - 1) % kPatchCells != 0) {
+        out.error = "F3 EHF dimensions are not a 32-cell patch grid";
+        return false;
+    }
+
+    const uint32_t patch_count_x = (width - 1) / kPatchCells;
+    const uint32_t patch_count_y = (height - 1) / kPatchCells;
+    if (std::fabs(patch_count_x_f - float(patch_count_x)) > 1e-4f ||
+        std::fabs(patch_count_y_f - float(patch_count_y)) > 1e-4f ||
+        std::fabs(patch_cells_x - float(kPatchCells)) > 1e-4f ||
+        std::fabs(patch_cells_y - float(kPatchCells)) > 1e-4f) {
+        out.error = "F3 EHF patch-grid header fields disagree with resolution";
+        return false;
+    }
+
+    const uint64_t patch_count =
+        uint64_t(patch_count_x) * uint64_t(patch_count_y);
+    const uint64_t required =
+        uint64_t(kHeader) + patch_count * uint64_t(kPatchStride);
+    if (required > bytes.size()) {
+        out.error = "F3 EHF ends before its declared patch grid";
+        return false;
+    }
+
+    out.f3_format = true;
+    out.origin_x = origin_x;
+    out.origin_z = origin_z;
+    out.width = width;
+    out.height = height;
+    out.tile_size = spacing;
+    out.heights.assign(size_t(width) * size_t(height), 0.0f);
+    std::vector<uint8_t> written(out.heights.size(), 0);
+    out.min_height = std::numeric_limits<float>::infinity();
+    out.max_height = -std::numeric_limits<float>::infinity();
+
+    for (uint32_t px = 0; px < patch_count_x; ++px) {
+        for (uint32_t py = 0; py < patch_count_y; ++py) {
+            const uint64_t patch_index =
+                uint64_t(px) * uint64_t(patch_count_y) + py;
+            const size_t off =
+                kHeader + size_t(patch_index) * kPatchStride;
+            if (off + kPatchHeader > bytes.size()) {
+                out.error = "F3 EHF patch header is truncated";
+                out = {};
+                return false;
+            }
+
+            const float min_x = le_f32(off + 0);
+            const float min_y = le_f32(off + 4);
+            const float min_z = le_f32(off + 8);
+            const float max_x = le_f32(off + 12);
+            const float max_y = le_f32(off + 16);
+            const float max_z = le_f32(off + 20);
+            const uint32_t patch_w = le_u32(off + 24);
+            const uint32_t patch_h = le_u32(off + 28);
+
+            if (patch_w != kPatchWidth || patch_h != kPatchHeight ||
+                !std::isfinite(min_x) || !std::isfinite(min_y) ||
+                !std::isfinite(min_z) || !std::isfinite(max_x) ||
+                !std::isfinite(max_y) || !std::isfinite(max_z) ||
+                max_x <= min_x || max_y <= min_y || max_z < min_z) {
+                out.error = "F3 EHF patch header is invalid";
+                out = {};
+                return false;
+            }
+
+            const float expected_x =
+                origin_x + float(px * kPatchCells) * spacing;
+            const float expected_y =
+                origin_z + float(py * kPatchCells) * spacing;
+            if (std::fabs(min_x - expected_x) >
+                    std::max(1e-3f, spacing * 1e-4f) ||
+                std::fabs(min_y - expected_y) >
+                    std::max(1e-3f, spacing * 1e-4f) ||
+                std::fabs((max_x - min_x) / 32.0f - spacing) > 1e-3f ||
+                std::fabs((max_y - min_y) / 32.0f - spacing) > 1e-3f) {
+                out.error = "F3 EHF patch position/spacing does not match file header";
+                out = {};
+                return false;
+            }
+
+            const size_t samples_off = off + kPatchHeader;
+            const size_t samples_bytes =
+                size_t(kPatchWidth) * size_t(kPatchHeight) * kVertexStride;
+            if (samples_off + samples_bytes > bytes.size()) {
+                out.error = "F3 EHF patch elevation data is truncated";
+                out = {};
+                return false;
+            }
+
+            for (uint32_t vy = 0; vy < kPatchHeight; ++vy) {
+                for (uint32_t vx = 0; vx < kPatchWidth; ++vx) {
+                    const size_t src =
+                        samples_off +
+                        (size_t(vy) * kPatchWidth + vx) * kVertexStride;
+                    const float h = le_f32(src);
+                    if (!std::isfinite(h) ||
+                        h < min_z - 1e-2f || h > max_z + 1e-2f) {
+                        out.error = "F3 EHF patch contains invalid elevation";
+                        out = {};
+                        return false;
+                    }
+
+                    const uint32_t gx = px * kPatchCells + vx;
+                    const uint32_t gy = py * kPatchCells + vy;
+                    const size_t dst = size_t(gy) * width + gx;
+                    if (!written[dst]) {
+                        out.heights[dst] = h;
+                        written[dst] = 1;
+                    } else if (std::fabs(out.heights[dst] - h) > 1e-3f) {
+                        out.error = "F3 EHF overlapping patch elevations disagree";
+                        out = {};
+                        return false;
+                    }
+                    out.min_height = std::min(out.min_height, h);
+                    out.max_height = std::max(out.max_height, h);
+                }
+            }
+        }
+    }
+
+    for (uint8_t v : written) {
+        if (!v) {
+            out.error = "F3 EHF patch grid left an unwritten terrain sample";
+            out = {};
+            return false;
+        }
+    }
+
+    out.ok = true;
+    return true;
+}
+
+
 }
