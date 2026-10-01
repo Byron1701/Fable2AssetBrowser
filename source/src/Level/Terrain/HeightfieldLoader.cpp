@@ -236,24 +236,88 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
     out = {};
     if (!hg.ok || hg.width < 2 || hg.height < 2 ||
         hg.heights.size() != size_t(hg.width) * size_t(hg.height)) {
+        OutputLog::error("  terrain mesh build rejected: invalid height grid");
         return false;
     }
 
     const uint32_t W = hg.width;
     const uint32_t H = hg.height;
     const float    tile = hg.tile_size > 0.f ? hg.tile_size : 0.5f;
-    const size_t   N    = size_t(W) * size_t(H);
-    const size_t   tris = size_t(W - 1) * size_t(H - 1) * 2;
+
+    // This builder is shared by the existing F2 terrain path and the F3 path.
+    // Protect the common allocation stage rather than changing either file
+    // format's decoder.
+    constexpr size_t kMaxTerrainMeshBytes = 512ull * 1024ull * 1024ull;
+
+    const size_t w = size_t(W);
+    const size_t h = size_t(H);
+    if (w > std::numeric_limits<size_t>::max() / h) {
+        OutputLog::error("  terrain mesh build rejected: vertex-count overflow");
+        return false;
+    }
+    const size_t N = w * h;
+
+    if (w - 1 > std::numeric_limits<size_t>::max() / (h - 1) ||
+        (w - 1) * (h - 1) > std::numeric_limits<size_t>::max() / 2) {
+        OutputLog::error("  terrain mesh build rejected: triangle-count overflow");
+        return false;
+    }
+    const size_t tris = (w - 1) * (h - 1) * 2;
+
+    const size_t position_floats = N * 3;
+    const size_t normal_floats   = N * 3;
+    const size_t uv_floats       = N * 2;
+    const size_t index_values    = tris * 3;
+
+    if (N > std::numeric_limits<size_t>::max() / 3 ||
+        tris > std::numeric_limits<size_t>::max() / 3) {
+        OutputLog::error("  terrain mesh build rejected: allocation-size overflow");
+        return false;
+    }
+
+    const size_t mesh_bytes =
+        (position_floats + normal_floats + uv_floats) * sizeof(float) +
+        index_values * sizeof(uint32_t);
+
+    OutputLog::info(
+        "  terrain mesh allocation: grid=" + std::to_string(W) + "x" +
+        std::to_string(H) +
+        "  verts=" + std::to_string(N) +
+        "  tris=" + std::to_string(tris) +
+        "  estimated=" + std::to_string(mesh_bytes / (1024ull * 1024ull)) +
+        " MiB");
+
+    if (mesh_bytes > kMaxTerrainMeshBytes) {
+        OutputLog::error(
+            "  terrain mesh build rejected: estimated allocation " +
+            std::to_string(mesh_bytes / (1024ull * 1024ull)) +
+            " MiB exceeds 512 MiB safety limit");
+        return false;
+    }
 
     out.width  = W;
     out.height = H;
     out.min_height = hg.min_height;
     out.max_height = hg.max_height;
 
-    out.positions.resize(N * 3);
-    out.normals.resize  (N * 3);
-    out.uvs.resize      (N * 2);
-    out.indices.resize  (tris * 3);
+    try {
+        out.positions.resize(position_floats);
+        out.normals.resize  (normal_floats);
+        out.uvs.resize      (uv_floats);
+        out.indices.resize  (index_values);
+    } catch (const std::bad_alloc&) {
+        OutputLog::error(
+            "  terrain mesh build failed: std::bad_alloc while allocating " +
+            std::to_string(mesh_bytes / (1024ull * 1024ull)) + " MiB");
+        out = {};
+        return false;
+    } catch (const std::length_error&) {
+        OutputLog::error(
+            "  terrain mesh build failed: std::length_error for " +
+            std::to_string(W) + "x" + std::to_string(H) + " grid");
+        out = {};
+        return false;
+    }
 
     constexpr float kUvRepeatsPerWu = 0.125f;
     for (uint32_t y = 0; y < H; ++y) {
