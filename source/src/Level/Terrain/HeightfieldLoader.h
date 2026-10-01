@@ -79,4 +79,6 @@ struct TerrainMesh {
 
 bool BuildTerrainMesh(const GhfHeights& heights, TerrainMesh& out);
 
+void TerrainMeshTrace(const std::string& message) noexcept;
+
 }
