@@ -17,19 +17,21 @@ bool BakeEhfTerrainCompositeWithBnk(const std::vector<uint8_t>& ehf,
     {
         static constexpr char   kMagic[]   = "HeightFieldGraphicsFile";
         static constexpr size_t kMagicLen  = sizeof(kMagic) - 1;
-        static constexpr size_t kHeaderLen = 63;
+        static constexpr size_t kHeaderLen = 0x47;
         if (ehf.size() < kHeaderLen) return false;
         if (std::memcmp(ehf.data(), kMagic, kMagicLen) != 0) return false;
-        auto be_u32 = [&](size_t off) -> uint32_t {
-            return (uint32_t(ehf[off]) << 24) | (uint32_t(ehf[off+1]) << 16)
-                 | (uint32_t(ehf[off+2]) << 8) |  uint32_t(ehf[off+3]);
+        auto le_u32 = [&](size_t off) -> uint32_t {
+            return uint32_t(ehf[off]) |
+                   (uint32_t(ehf[off + 1]) << 8) |
+                   (uint32_t(ehf[off + 2]) << 16) |
+                   (uint32_t(ehf[off + 3]) << 24);
         };
         hdr.magic.assign(kMagic);
-        hdr.version     = be_u32(kMagicLen);
-        hdr.u0          = be_u32(35);
-        hdr.u1          = be_u32(39);
-        hdr.body_offset = be_u32(55);
-        hdr.body_size   = be_u32(59);
+        hdr.version     = le_u32(0x17);
+        hdr.u0          = le_u32(0x23);
+        hdr.u1          = le_u32(0x27);
+        hdr.body_offset = 0x47;
+        hdr.body_size   = uint32_t(ehf.size() - hdr.body_offset);
         hdr.ok          = (uint64_t(hdr.body_offset) + hdr.body_size <= ehf.size());
     }
     if (!hdr.ok || hdr.u0 == 0 || hdr.u1 == 0) {
