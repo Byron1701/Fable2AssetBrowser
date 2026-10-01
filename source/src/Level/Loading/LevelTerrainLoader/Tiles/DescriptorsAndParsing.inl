@@ -52,6 +52,12 @@ static bool ehf_skip_tex_blob(const std::vector<uint8_t>& ehf,
     }
     if (next > limit) return false;
     pos = next;
+    {
+        std::ostringstream trace;
+        trace << "parse_ehf_render_tiles: parsed " << out.size()
+              << " tiles; placed_exact=" << (placed_exact ? "true" : "false");
+        TerrainMeshTrace(trace.str());
+    }
     return true;
 }
 
@@ -60,21 +66,69 @@ static bool parse_ehf_render_tiles(const std::vector<uint8_t>& ehf,
                                    std::vector<EhfRenderTileDesc>& out)
 {
     out.clear();
-    if (ehf.size() < 63) return false;
+    {
+        std::ostringstream trace;
+        trace << "parse_ehf_render_tiles: entered; ehf_bytes=" << ehf.size()
+              << " terrain_cells_w=" << terrain_cells_w;
+        TerrainMeshTrace(trace.str());
+    }
+    if (ehf.size() < 63) {
+        TerrainMeshTrace("parse_ehf_render_tiles: failed: EHF shorter than 63 bytes");
+        return false;
+    }
     const uint32_t body_off  = ehf_be32(ehf, 55);
     const uint32_t body_size = ehf_be32(ehf, 59);
     const size_t body_end = size_t(body_off) + size_t(body_size);
-    if (body_end > ehf.size()) return false;
+    {
+        std::ostringstream trace;
+        trace << "parse_ehf_render_tiles: header body_off=" << body_off
+              << " body_size=" << body_size
+              << " body_end=" << body_end;
+        TerrainMeshTrace(trace.str());
+    }
+    if (body_end > ehf.size()) {
+        TerrainMeshTrace("parse_ehf_render_tiles: failed: body_end exceeds EHF size");
+        return false;
+    }
 
     size_t pos = body_off;
-    if (!ehf_skip_tex_blob(ehf, body_end, pos)) return false;
-    if (!ehf_skip_tex_blob(ehf, body_end, pos)) return false;
-    if (pos + 8 > body_end) return false;
+    if (!ehf_skip_tex_blob(ehf, body_end, pos)) {
+        TerrainMeshTrace("parse_ehf_render_tiles: failed: first ehf_skip_tex_blob");
+        return false;
+    }
+    {
+        std::ostringstream trace;
+        trace << "parse_ehf_render_tiles: first texture blob skipped; pos=" << pos;
+        TerrainMeshTrace(trace.str());
+    }
+    if (!ehf_skip_tex_blob(ehf, body_end, pos)) {
+        TerrainMeshTrace("parse_ehf_render_tiles: failed: second ehf_skip_tex_blob");
+        return false;
+    }
+    {
+        std::ostringstream trace;
+        trace << "parse_ehf_render_tiles: second texture blob skipped; pos=" << pos;
+        TerrainMeshTrace(trace.str());
+    }
+    if (pos + 8 > body_end) {
+        TerrainMeshTrace("parse_ehf_render_tiles: failed: fewer than 8 bytes remain before tile count");
+        return false;
+    }
 
     pos += 4;
     const uint32_t count = ehf_be32(ehf, pos);
     pos += 4;
-    if (count == 0 || count > 4096) return false;
+    {
+        std::ostringstream trace;
+        trace << "parse_ehf_render_tiles: tile count=" << count
+              << " count_field_end=" << pos
+              << " body_end=" << body_end;
+        TerrainMeshTrace(trace.str());
+    }
+    if (count == 0 || count > 4096) {
+        TerrainMeshTrace("parse_ehf_render_tiles: failed: tile count outside 1..4096");
+        return false;
+    }
 
     auto ehf_bef32 = [&](size_t off) -> float {
         const uint32_t u = ehf_be32(ehf, off);
@@ -85,7 +139,14 @@ static bool parse_ehf_render_tiles(const std::vector<uint8_t>& ehf,
 
     out.reserve(count);
     for (uint32_t i = 0; i < count; ++i) {
-        if (pos + 16 > body_end) return false;
+        if (pos + 16 > body_end) {
+            std::ostringstream trace;
+            trace << "parse_ehf_render_tiles: failed: tile " << i
+                  << " descriptor exceeds body_end; pos=" << pos
+                  << " body_end=" << body_end;
+            TerrainMeshTrace(trace.str());
+            return false;
+        }
         EhfRenderTileDesc t;
         t.cell_w = ehf_be32(ehf, pos + 0);
         t.cell_h = ehf_be32(ehf, pos + 4);
@@ -96,11 +157,23 @@ static bool parse_ehf_render_tiles(const std::vector<uint8_t>& ehf,
             t.sub_w == 0 || t.sub_h == 0 ||
             t.sub_w > 1024 || t.sub_h > 1024)
         {
+            std::ostringstream trace;
+            trace << "parse_ehf_render_tiles: failed: tile " << i
+                  << " invalid dimensions cell=" << t.cell_w << "x" << t.cell_h
+                  << " sub=" << t.sub_w << "x" << t.sub_h;
+            TerrainMeshTrace(trace.str());
             return false;
         }
         const size_t grid_bytes =
             size_t(t.sub_w) * size_t(t.sub_h) * 160u + 24u;
-        if (pos + grid_bytes > body_end) return false;
+        if (pos + grid_bytes > body_end) {
+            std::ostringstream trace;
+            trace << "parse_ehf_render_tiles: failed: tile " << i
+                  << " grid exceeds body_end; grid_bytes=" << grid_bytes
+                  << " pos=" << pos << " body_end=" << body_end;
+            TerrainMeshTrace(trace.str());
+            return false;
+        }
         {
             const size_t bb = pos + grid_bytes - 24u;
             t.min_x = ehf_bef32(bb + 0);
