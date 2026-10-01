@@ -26,6 +26,7 @@ void OpenAsync(const FlatAssetEntry& entry)
             g_pending_adjacent_terrain_meshes.clear();
             g_pending_terrain_mesh = Level::TerrainMesh{};
             g_pending_terrain_ehf_bytes.clear();
+            g_pending_terrain_f3_ehf = false;
             g_pending_terrain_ghf_heights.clear();
             g_pending_terrain_ghf_payload.clear();
             g_pending_terrain_ghf_width = 0;
