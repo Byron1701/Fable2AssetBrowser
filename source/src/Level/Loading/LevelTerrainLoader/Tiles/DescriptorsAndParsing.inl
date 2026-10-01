@@ -32,15 +32,41 @@ static bool ehf_skip_tex_blob(const std::vector<uint8_t>& ehf,
                               size_t limit,
                               size_t& pos)
 {
-    if (pos + 0x60 > limit) return false;
-    if (ehf_be32(ehf, pos) != 0xFFFFFFFEu) return false;
+    if (pos + 0x60 > limit) {
+        std::ostringstream trace;
+        trace << "ehf_skip_tex_blob: failed: header exceeds limit; pos=" << pos
+              << " limit=" << limit;
+        TerrainMeshTrace(trace.str());
+        return false;
+    }
+    const uint32_t magic = ehf_be32(ehf, pos);
+    if (magic != 0xFFFFFFFEu) {
+        std::ostringstream trace;
+        trace << "ehf_skip_tex_blob: failed: magic at pos=" << pos
+              << " is 0x" << std::hex << magic << std::dec
+              << " expected 0xFFFFFFFE";
+        TerrainMeshTrace(trace.str());
+        return false;
+    }
 
     const uint32_t pf = ehf_be32(ehf, pos + 0x18);
     const uint32_t mt = ehf_be32(ehf, pos + 0x20);
-    if (mt < 0x54 || mt > 0x200) return false;
+    if (mt < 0x54 || mt > 0x200) {
+        std::ostringstream trace;
+        trace << "ehf_skip_tex_blob: failed: invalid mip table offset mt="
+              << mt << " at pos=" << pos;
+        TerrainMeshTrace(trace.str());
+        return false;
+    }
 
     const size_t table = pos + mt;
-    if (table + 8 > limit) return false;
+    if (table + 8 > limit) {
+        std::ostringstream trace;
+        trace << "ehf_skip_tex_blob: failed: mip table exceeds limit; table="
+              << table << " limit=" << limit;
+        TerrainMeshTrace(trace.str());
+        return false;
+    }
     size_t next;
     if (pf == 98u) {
         const uint32_t tw = ehf_be32(ehf, pos + 0x10);
@@ -50,7 +76,19 @@ static bool ehf_skip_tex_blob(const std::vector<uint8_t>& ehf,
         const uint32_t comp_size = ehf_be32(ehf, table + 4);
         next = table + 8 + size_t(comp_size);
     }
-    if (next > limit) return false;
+    if (next > limit) {
+        std::ostringstream trace;
+        trace << "ehf_skip_tex_blob: failed: texture blob exceeds limit; next="
+              << next << " limit=" << limit << " pf=" << pf << " mt=" << mt;
+        TerrainMeshTrace(trace.str());
+        return false;
+    }
+    {
+        std::ostringstream trace;
+        trace << "ehf_skip_tex_blob: success pos=" << pos
+              << " pf=" << pf << " mt=" << mt << " next=" << next;
+        TerrainMeshTrace(trace.str());
+    }
     pos = next;
     return true;
 }
