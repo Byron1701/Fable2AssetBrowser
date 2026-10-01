@@ -154,6 +154,7 @@
                         g_pending_terrain_level_entry = entry;
                         TerrainMeshTrace("Terrain caller: after pending terrain entry");
                         g_pending_terrain_ehf_bytes   = hf.ehf_bytes;
+                        g_pending_terrain_f3_ehf      = decoded_f3_ehf;
                         TerrainMeshTrace("Terrain caller: after pending EHF bytes");
                         g_pending_adjacent_terrain_meshes.clear();
                         TerrainMeshTrace("Terrain caller: after adjacent terrain clear");
