@@ -52,12 +52,6 @@ static bool ehf_skip_tex_blob(const std::vector<uint8_t>& ehf,
     }
     if (next > limit) return false;
     pos = next;
-    {
-        std::ostringstream trace;
-        trace << "parse_ehf_render_tiles: parsed " << out.size()
-              << " tiles; placed_exact=" << (placed_exact ? "true" : "false");
-        TerrainMeshTrace(trace.str());
-    }
     return true;
 }
 
@@ -254,6 +248,12 @@ static bool parse_ehf_render_tiles(const std::vector<uint8_t>& ehf,
                 row_h = 0;
             }
         }
+    }
+    {
+        std::ostringstream trace;
+        trace << "parse_ehf_render_tiles: parsed " << out.size()
+              << " tiles; placed_exact=" << (placed_exact ? "true" : "false");
+        TerrainMeshTrace(trace.str());
     }
     return true;
 }
