@@ -1,3 +1,4 @@
+                        TerrainMeshTrace("Terrain caller: entering pending terrain state");
                         g_pending_terrain_ghf_payload   = hf.ghf_bytes_raw;
                         g_pending_terrain_ghf_heights =
                             std::move(hg.heights);
@@ -20,3 +21,4 @@
                                 std::make_move_iterator(hkx_blocks.begin()),
                                 std::make_move_iterator(hkx_blocks.end()));
                         }
+                        TerrainMeshTrace("Terrain caller: pending terrain state complete");
