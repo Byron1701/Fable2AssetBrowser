@@ -63,6 +63,9 @@ bool DecodeGhfHeights(const std::vector<uint8_t>& ghf_bytes_raw,
 bool DecodeF3GhfHeights(const std::vector<uint8_t>& ghf_bytes_raw,
                         GhfHeights&                 out);
 
+bool DecodeF3EhfHeights(const std::vector<uint8_t>& ehf_bytes,
+                        GhfHeights&                 out);
+
 struct TerrainMesh {
     bool                  ok = false;
     uint32_t              width  = 0;
