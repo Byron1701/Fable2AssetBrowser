@@ -174,7 +174,7 @@
                             adj.patch_geoms = std::move(adj_patch_geoms);
                             adj.preserve_mesh_uvs =
                                 used_vista_mesh || used_ehf_render_mesh;
-                            adj.prefer_embedded_albedo = true;
+                            adj.prefer_embedded_albedo = !used_f3_ehf_mesh;
                             g_pending_adjacent_terrain_meshes.push_back(std::move(adj));
                             TerrainMeshTrace("Terrain caller: adjacent mesh appended");
                         }
