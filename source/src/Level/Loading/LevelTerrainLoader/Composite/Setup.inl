@@ -10,6 +10,7 @@ bool BakeEhfTerrainCompositeWithBnk(const std::vector<uint8_t>& ehf,
     out_w = 0;
     out_h = 0;
     out_picked_name.clear();
+    Level::TerrainMeshTrace("BakeEhfTerrainCompositeWithBnk: entered");
     if (ehf.empty()) return false;
 
     HeightfieldHeader hdr;
@@ -37,7 +38,9 @@ bool BakeEhfTerrainCompositeWithBnk(const std::vector<uint8_t>& ehf,
     }
 
     EhfParsedBody parsed;
+    Level::TerrainMeshTrace("BakeEhfTerrainCompositeWithBnk: before ParseEhfBody");
     const bool parsed_ok = ParseEhfBody(ehf, parsed);
+    Level::TerrainMeshTrace("BakeEhfTerrainCompositeWithBnk: after ParseEhfBody");
     if (parsed_ok) {
         std::ostringstream pos;
         pos << "ehf chunk parse: " << parsed.chunk_w << "x"
@@ -66,6 +69,7 @@ bool BakeEhfTerrainCompositeWithBnk(const std::vector<uint8_t>& ehf,
         OutputLog::warn("bake composite: chunk parse failed: " + parsed.error);
     }
 
+    Level::TerrainMeshTrace("BakeEhfTerrainCompositeWithBnk: before embedded albedo decode");
     if (allow_embedded_albedo &&
         DecodeEhfTerrainAlbedoFromBytes(ehf, hdr.u0, hdr.u1,
                                         out_rgba, out_w, out_h))
@@ -81,7 +85,9 @@ bool BakeEhfTerrainCompositeWithBnk(const std::vector<uint8_t>& ehf,
     {
         const uint8_t* p = ehf.data() + hdr.body_offset;
         std::vector<uint8_t> body_slice(p, p + hdr.body_size);
+        Level::TerrainMeshTrace("BakeEhfTerrainCompositeWithBnk: before lightmap DecodeAtlas");
         auto dec = TextureAtlas::DecodeAtlas(body_slice);
+        Level::TerrainMeshTrace("BakeEhfTerrainCompositeWithBnk: after lightmap DecodeAtlas");
         if (!dec.ok || dec.pixel_format != 24u) {
             OutputLog::warn("bake composite: .ehf body decode failed: " +
                             dec.error);
@@ -106,7 +112,9 @@ bool BakeEhfTerrainCompositeWithBnk(const std::vector<uint8_t>& ehf,
         std::string          name;
         float                tile_scale = 0.125f;
     };
+    Level::TerrainMeshTrace("BakeEhfTerrainCompositeWithBnk: before EhfPalette::Parse");
     EhfPalette::Palette pal = EhfPalette::Parse(ehf);
+    Level::TerrainMeshTrace("BakeEhfTerrainCompositeWithBnk: after EhfPalette::Parse");
     std::vector<Mat> mats(parsed.lods.size());
     int first_decoded = -1;
     for (size_t li = 0; li < parsed.lods.size(); ++li) {
@@ -188,6 +196,7 @@ bool BakeEhfTerrainCompositeWithBnk(const std::vector<uint8_t>& ehf,
         if (g_splat_output_h) *g_splat_output_h = 0;
     }
 
+    Level::TerrainMeshTrace("BakeEhfTerrainCompositeWithBnk: before output allocation");
     const size_t pix = size_t(lm_w) * size_t(lm_h);
     out_rgba.assign(pix * 4, 0);
     out_w = lm_w;
