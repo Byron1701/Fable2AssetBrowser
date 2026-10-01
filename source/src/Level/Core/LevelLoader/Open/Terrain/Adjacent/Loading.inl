@@ -1,5 +1,7 @@
+                        TerrainMeshTrace("Terrain caller: entering adjacent terrain loading");
                         const std::string main_ehf_norm = norm_path(res.ehf_path);
                         for (const auto& adj_ehf_path : all_ehf_refs) {
+                            TerrainMeshTrace("Terrain caller: adjacent ref: " + adj_ehf_path);
                             if (norm_path(adj_ehf_path) == main_ehf_norm) continue;
 
                             HeightfieldFiles adj_hf;
@@ -155,7 +157,9 @@
                                 used_vista_mesh || used_ehf_render_mesh;
                             adj.prefer_embedded_albedo = true;
                             g_pending_adjacent_terrain_meshes.push_back(std::move(adj));
+                            TerrainMeshTrace("Terrain caller: adjacent mesh appended");
                         }
+                        TerrainMeshTrace("Terrain caller: adjacent terrain loading complete");
                         if (!g_pending_adjacent_terrain_meshes.empty()) {
                             OutputLog::success("adjacent terrain meshes loaded: " +
                                 std::to_string(g_pending_adjacent_terrain_meshes.size()));
