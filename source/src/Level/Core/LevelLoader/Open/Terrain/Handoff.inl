@@ -1,3 +1,4 @@
+                        TerrainMeshTrace("Terrain caller: entering handoff stage");
                         g_pending_level_model_body_bnk.clear();
                         if (!res.model_body_bnk.empty()) {
                             auto found_model_bnk =
@@ -70,6 +71,9 @@
         OutputLog::warn("no .ehf or .ghf path in level - can't load terrain");
     }
 
+    TerrainMeshTrace("Terrain caller: before debug_scope.Result");
     debug_scope.Result("success");
+    TerrainMeshTrace("Terrain caller: before return true");
     return true;
 }
+                        TerrainMeshTrace("Terrain caller: handoff stage complete");
