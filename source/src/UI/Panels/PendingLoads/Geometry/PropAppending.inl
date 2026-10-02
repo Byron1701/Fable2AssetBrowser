@@ -62,26 +62,33 @@ static void append_level_props_to_geoms(std::vector<MDLMeshGeom>& geoms)
 
     for (const auto& block : g_pending_level_prop_blocks) {
         if (block.model_path.empty()) continue;
-        auto& cached = cache[block.model_path];
-        if (!cached.loaded && cached.geoms.empty()) {
-            cached.loaded =
-                load_cached_prop_model(block.model_path,
-                                       g_pending_level_model_body_bnk,
-                                       cached);
-            if (!cached.loaded) {
-                ++models_failed;
-                if (misses_logged < 5) {
-                    ++misses_logged;
-                    OutputLog::warn("level props: model load miss " +
-                                    block.model_path);
+
+        // A single F3 type-2 block can contain thousands of placements.
+        // Keep a bad allocation in one model/block from aborting the entire
+        // level prop bake; the remaining engine_level placement blocks still
+        // belong to the existing F2 prop rendering pipeline and can render
+        // independently.
+        try {
+            auto& cached = cache[block.model_path];
+            if (!cached.loaded && cached.geoms.empty()) {
+                cached.loaded =
+                    load_cached_prop_model(block.model_path,
+                                           g_pending_level_model_body_bnk,
+                                           cached);
+                if (!cached.loaded) {
+                    ++models_failed;
+                    if (misses_logged < 5) {
+                        ++misses_logged;
+                        OutputLog::warn("level props: model load miss " +
+                                        block.model_path);
+                    }
+                    cached.loaded = true;
                 }
-                cached.loaded = true;
             }
-        }
 
-        if (cached.geoms.empty()) continue;
+            if (cached.geoms.empty()) continue;
 
-        std::vector<MDLMeshGeom> combined(cached.geoms.size());
+            std::vector<MDLMeshGeom> combined(cached.geoms.size());
         std::vector<size_t> chunk_index(cached.geoms.size(), 0);
         for (size_t gi = 0; gi < cached.geoms.size(); ++gi) {
             const auto& src = cached.geoms[gi];
@@ -114,7 +121,25 @@ static void append_level_props_to_geoms(std::vector<MDLMeshGeom>& geoms)
                 geoms.push_back(std::move(cg));
             }
         }
-        (void)terrain_cx; (void)terrain_cz;
+            (void)terrain_cx; (void)terrain_cz;
+        } catch (const std::bad_alloc&) {
+            ++models_failed;
+            OutputLog::warn("level props: skipped model after bad allocation " +
+                            block.model_path + " (" +
+                            std::to_string(block.instances.size()) +
+                            " instances)");
+            continue;
+        } catch (const std::exception& ex) {
+            ++models_failed;
+            OutputLog::warn("level props: skipped model after exception " +
+                            block.model_path + ": " + ex.what());
+            continue;
+        } catch (...) {
+            ++models_failed;
+            OutputLog::warn("level props: skipped model after unknown exception " +
+                            block.model_path);
+            continue;
+        }
     }
 
     OutputLog::info("level props: appended " +
