@@ -132,14 +132,24 @@ bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
                     PropInstance inst;
                     inst.record_file_offset = (uint32_t)r.i;
                     inst.count_file_offset = instance_count_off;
-                    inst.record_size = 3 + 8 + 20 * 4;
-                    if (!r.u8(inst.flags[0]) ||
-                        !r.u8(inst.flags[1]) ||
-                        !r.u8(inst.flags[2]) ||
+                    // F3 v13 type-2 placement records are 92 bytes:
+                    //   uint32 flags
+                    //   uint64 hash
+                    //   20 little-endian float32 values
+                    // The four flag bytes are a single field in the file;
+                    // the existing PropInstance retains the first three
+                    // bytes because that is the representation used by the
+                    // downstream F2 placement pipeline.
+                    inst.record_size = 4 + 8 + 20 * 4;
+                    uint32_t flags = 0;
+                    if (!r.u32(flags) ||
                         !r.u64(inst.hash)) {
                         out.error = "truncated reading type-2 instance header";
                         return false;
                     }
+                    inst.flags[0] = uint8_t(flags & 0xffu);
+                    inst.flags[1] = uint8_t((flags >> 8) & 0xffu);
+                    inst.flags[2] = uint8_t((flags >> 16) & 0xffu);
                     inst.pos_file_offset = (uint32_t)r.i;
                     inst.lev_rec_kind = 1;
                     for (float& v : inst.values) {
