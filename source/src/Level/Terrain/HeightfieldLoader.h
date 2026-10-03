@@ -38,6 +38,12 @@ struct HeightfieldFiles {
 struct F3EhfTerrainMaterialRef {
     std::string diffuse;
     std::string normal;
+    std::string detail_diffuse;
+    std::string detail_normal;
+    float tile_scale = 0.125f;
+    float intensity = 0.5f;
+    float detail_tile_scale = 0.125f;
+    float detail_intensity = 0.5f;
 };
 
 struct F3EhfTerrainMaterials {
@@ -77,6 +83,8 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& ghf_bytes_raw,
 
 bool DecodeF3EhfHeights(const std::vector<uint8_t>& ehf_bytes,
                         GhfHeights&                 out);
+
+bool IsF3Ehf(const std::vector<uint8_t>& ehf_bytes);
 
 bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& ehf_bytes,
                                  F3EhfTerrainMaterials& out);
