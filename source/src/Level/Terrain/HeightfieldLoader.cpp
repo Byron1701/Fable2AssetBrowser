@@ -599,7 +599,12 @@ bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
                (uint32_t(bytes[o + 2]) << 16) |
                (uint32_t(bytes[o + 3]) << 24);
     };
-
+    auto le_f32 = [&](size_t o) -> float {
+        uint32_t u = le_u32(o);
+        float f = 0.0f;
+        std::memcpy(&f, &u, sizeof(f));
+        return f;
+    };
     auto be_f32 = [&](size_t o) -> float {
         const uint32_t u =
             (uint32_t(bytes[o]) << 24) |
@@ -613,59 +618,60 @@ bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
 
     const uint32_t width = le_u32(0x23);
     const uint32_t height = le_u32(0x27);
-    auto le_f32 = [&](size_t o) -> float {
-        uint32_t u = le_u32(o);
-        float f = 0.0f;
-        std::memcpy(&f, &u, sizeof(f));
-        return f;
-    };
     const uint32_t patch_x = uint32_t(le_f32(0x37));
     const uint32_t patch_y = uint32_t(le_f32(0x3B));
     const uint64_t patch_end = uint64_t(kHeader) +
         uint64_t(patch_x) * uint64_t(patch_y) * kPatchStride;
 
-    if (width < 2 || height < 2 || patch_end > bytes.size()) {
+    if (width < 2 || height < 2 || patch_end + 4 > bytes.size()) {
         out.error = "F3 EHF patch-grid header is invalid";
         return false;
     }
 
-    // After the verified patch grid, the Library F3 files contain a sequence
-    // of material records. Each record is exactly:
+    size_t pos = size_t(patch_end);
+
+    // Verified in the Library Bowerstone Castle and Bowerstone heightfields:
+    //
+    //   uint32 N                  (little-endian)
+    //   N base material records
+    //   N detail material records
+    //   uint32 patch_count_x     (little-endian)
+    //   uint32 patch_count_y     (little-endian)
+    //
+    // Each material record is:
     //   diffuse C-string
     //   normal C-string
-    //   13-byte parameter block
+    //   13 bytes: 1-byte field + three BE floats
     //
-    // The material sequence ends at the next verified patch-grid marker
-    // (patch_count_x, patch_count_y). This is parsed from the actual bytes;
-    // no F2 body structure is reused here.
-    size_t pos = size_t(patch_end);
-    std::vector<F3EhfTerrainMaterialRef> records;
+    // The two material groups are kept together as base/detail entries so
+    // the existing TerrainTextureRegistry/TerrainSplat material machinery
+    // can consume them without changing the F2 parser.
+    const uint32_t material_count = le_u32(pos);
+    pos += 4;
+    if (material_count == 0 || material_count > 128) {
+        out.error = "F3 EHF material count is invalid";
+        return false;
+    }
 
-    auto is_printable_path = [&](size_t begin, size_t end) {
-        if (end <= begin || end - begin > 512) return false;
-        if (end - begin < 8) return false;
-        return bytes[begin] == 'a' && bytes[begin + 1] == 'r' &&
-               bytes[begin + 2] == 't' && bytes[begin + 3] == '\\';
-    };
-
-    while (pos + 8 <= bytes.size()) {
-        const uint32_t marker_x = le_u32(pos);
-        const uint32_t marker_y = le_u32(pos + 4);
-        const uint32_t expected_x = uint32_t((width - 1) / 32);
-        const uint32_t expected_y = uint32_t((height - 1) / 32);
-        if (marker_x == expected_x && marker_y == expected_y) {
-            break;
-        }
-
+    auto read_record = [&](F3EhfTerrainMaterialRef& m,
+                           std::string& err) -> bool {
         const size_t ds = pos;
         const uint8_t* dbase = bytes.data() + ds;
         const uint8_t* dend =
             static_cast<const uint8_t*>(
                 std::memchr(dbase, 0, bytes.size() - ds));
-        if (!dend) break;
+        if (!dend) {
+            err = "diffuse string is truncated";
+            return false;
+        }
         const size_t de = size_t(dend - bytes.data());
-        if (!is_printable_path(ds, de)) break;
-        F3EhfTerrainMaterialRef m;
+        if (de <= ds || de - ds > 512 ||
+            de - ds < 8 ||
+            bytes[ds] != 'a' || bytes[ds + 1] != 'r' ||
+            bytes[ds + 2] != 't' || bytes[ds + 3] != '\\') {
+            err = "diffuse string is invalid";
+            return false;
+        }
         m.diffuse.assign(reinterpret_cast<const char*>(bytes.data() + ds),
                          de - ds);
         pos = de + 1;
@@ -675,26 +681,66 @@ bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
         const uint8_t* nend =
             static_cast<const uint8_t*>(
                 std::memchr(nbase, 0, bytes.size() - ns));
-        if (!nend) break;
+        if (!nend) {
+            err = "normal string is truncated";
+            return false;
+        }
         const size_t ne = size_t(nend - bytes.data());
-        if (!is_printable_path(ns, ne)) break;
+        if (ne <= ns || ne - ns > 512 ||
+            ne - ns < 8 ||
+            bytes[ns] != 'a' || bytes[ns + 1] != 'r' ||
+            bytes[ns + 2] != 't' || bytes[ns + 3] != '\\') {
+            err = "normal string is invalid";
+            return false;
+        }
         m.normal.assign(reinterpret_cast<const char*>(bytes.data() + ns),
                         ne - ns);
         pos = ne + 1;
 
-        if (pos + 13 > bytes.size()) break;
+        if (pos + 13 > bytes.size()) {
+            err = "parameter block is truncated";
+            return false;
+        }
+
         m.tile_scale = be_f32(pos + 1);
         m.intensity = be_f32(pos + 5);
         pos += 13;
-        records.push_back(std::move(m));
+        return true;
+    };
+
+    out.entries.resize(material_count);
+    for (uint32_t i = 0; i < material_count; ++i) {
+        if (!read_record(out.entries[i], out.error)) {
+            out.error = "base material[" + std::to_string(i) + "]: " +
+                        out.error;
+            out.entries.clear();
+            return false;
+        }
+    }
+    for (uint32_t i = 0; i < material_count; ++i) {
+        F3EhfTerrainMaterialRef detail;
+        if (!read_record(detail, out.error)) {
+            out.error = "detail material[" + std::to_string(i) + "]: " +
+                        out.error;
+            out.entries.clear();
+            return false;
+        }
+        out.entries[i].detail_diffuse = std::move(detail.diffuse);
+        out.entries[i].detail_normal = std::move(detail.normal);
+        out.entries[i].detail_tile_scale = detail.tile_scale;
+        out.entries[i].detail_intensity = detail.intensity;
     }
 
-    if (records.empty()) {
-        out.error = "F3 EHF contains no verified terrain material records";
+    const uint32_t expected_x = (width - 1) / 32;
+    const uint32_t expected_y = (height - 1) / 32;
+    if (pos + 8 > bytes.size() ||
+        le_u32(pos) != expected_x ||
+        le_u32(pos + 4) != expected_y) {
+        out.error = "F3 EHF material table is not followed by its verified patch-grid marker";
+        out.entries.clear();
         return false;
     }
 
-    out.entries = std::move(records);
     out.ok = true;
     return true;
 }
