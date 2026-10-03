@@ -542,6 +542,135 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
 }
 
 
+bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
+                                 F3EhfTerrainMaterials& out)
+{
+    out = {};
+    constexpr char kMagic[] = "HeightFieldGraphicsFile";
+    constexpr size_t kMagicLen = sizeof(kMagic) - 1;
+    constexpr size_t kHeader = 0x47;
+    constexpr size_t kPatchStride = 10440;
+
+    if (bytes.size() < kHeader ||
+        std::memcmp(bytes.data(), kMagic, kMagicLen) != 0) {
+        out.error = "F3 EHF magic/header mismatch";
+        return false;
+    }
+
+    auto le_u32 = [&](size_t o) -> uint32_t {
+        return uint32_t(bytes[o]) |
+               (uint32_t(bytes[o + 1]) << 8) |
+               (uint32_t(bytes[o + 2]) << 16) |
+               (uint32_t(bytes[o + 3]) << 24);
+    };
+    auto le_f32 = [&](size_t o) -> float {
+        uint32_t u = le_u32(o);
+        float f = 0.0f;
+        std::memcpy(&f, &u, sizeof(f));
+        return f;
+    };
+
+    const uint32_t width = le_u32(0x23);
+    const uint32_t height = le_u32(0x27);
+    const float spacing = le_f32(0x2B);
+    const uint32_t patch_x = uint32_t(le_f32(0x37));
+    const uint32_t patch_y = uint32_t(le_f32(0x3B));
+    const uint64_t patch_end = uint64_t(kHeader) +
+        uint64_t(patch_x) * uint64_t(patch_y) * kPatchStride;
+
+    if (width < 2 || height < 2 || width > 8192 || height > 8192 ||
+        patch_x == 0 || patch_y == 0 ||
+        (width - 1) / 32 != patch_x || (height - 1) / 32 != patch_y ||
+        !std::isfinite(spacing) || spacing <= 0.0f ||
+        patch_end > bytes.size()) {
+        out.error = "F3 EHF patch-grid header is invalid";
+        return false;
+    }
+
+    // The texture paths are extracted from the verified post-patch F3 EHF
+    // resource area. We deliberately do not assign a guessed record layout:
+    // only actual null-terminated .tex paths are recognised.
+    std::vector<std::string> paths;
+    size_t pos = size_t(patch_end);
+    while (pos < bytes.size()) {
+        size_t start = pos;
+        while (pos < bytes.size() && bytes[pos] >= 0x20 && bytes[pos] <= 0x7e)
+            ++pos;
+        if (pos < bytes.size() && bytes[pos] == 0) {
+            const size_t len = pos - start;
+            if (len >= 8 && len <= 512) {
+                std::string s(reinterpret_cast<const char*>(bytes.data() + start), len);
+                std::string lower = s;
+                std::transform(lower.begin(), lower.end(), lower.begin(),
+                               [](unsigned char ch){ return char(std::tolower(ch)); });
+                if (lower.size() >= 4 &&
+                    lower.compare(lower.size() - 4, 4, ".tex") == 0 &&
+                    lower.find('\\') != std::string::npos) {
+                    paths.push_back(std::move(s));
+                }
+            }
+            ++pos;
+        } else {
+            ++pos;
+        }
+    }
+
+    // Preserve first occurrence order and pair the explicitly observed
+    // diffuse/normal naming convention. No material-index interpretation is
+    // performed here; that requires decoding the surrounding binary records.
+    std::vector<std::string> unique;
+    for (const auto& p : paths) {
+        std::string key = p;
+        std::transform(key.begin(), key.end(), key.begin(),
+                       [](unsigned char ch){ return char(std::tolower(ch)); });
+        bool seen = false;
+        for (const auto& u : unique) {
+            std::string uk = u;
+            std::transform(uk.begin(), uk.end(), uk.begin(),
+                           [](unsigned char ch){ return char(std::tolower(ch)); });
+            if (uk == key) { seen = true; break; }
+        }
+        if (!seen) unique.push_back(p);
+    }
+
+    for (const auto& p : unique) {
+        std::string lower = p;
+        std::transform(lower.begin(), lower.end(), lower.begin(),
+                       [](unsigned char ch){ return char(std::tolower(ch)); });
+        if (lower.find("_norm.tex") != std::string::npos ||
+            lower.find("_normal.tex") != std::string::npos ||
+            lower.find("_nrm.tex") != std::string::npos)
+            continue;
+
+        F3EhfTerrainMaterialRef m;
+        m.diffuse = p;
+        const std::string suffixes[] = {"_norm.tex", "_normal.tex", "_nrm.tex"};
+        for (const auto& n : suffixes) {
+            if (lower.size() >= n.size() &&
+                lower.compare(lower.size() - n.size(), n.size(), n) == 0) {
+                break;
+            }
+            std::string candidate = p.substr(0, p.size() - 4) + n;
+            std::string cl = candidate;
+            std::transform(cl.begin(), cl.end(), cl.begin(),
+                           [](unsigned char ch){ return char(std::tolower(ch)); });
+            for (const auto& q : unique) {
+                std::string ql = q;
+                std::transform(ql.begin(), ql.end(), ql.begin(),
+                               [](unsigned char ch){ return char(std::tolower(ch)); });
+                if (ql == cl) { m.normal = q; break; }
+            }
+            if (!m.normal.empty()) break;
+        }
+        out.entries.push_back(std::move(m));
+    }
+
+    out.ok = !out.entries.empty();
+    if (!out.ok)
+        out.error = "F3 EHF contains no terrain .tex path references";
+    return out.ok;
+}
+
 bool DecodeF3EhfHeights(const std::vector<uint8_t>& bytes,
                         GhfHeights& out)
 {
