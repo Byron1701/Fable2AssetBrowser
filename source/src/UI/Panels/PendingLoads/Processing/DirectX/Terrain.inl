@@ -836,14 +836,31 @@
                         stitched = build_any_tex_buffer_for_name(
                             basename, blob_uc, preferred_bnk);
                     } catch (...) { stitched = false; }
+                    OutputLog::info(
+                        "terrain LOD TEX lookup: " + path +
+                        " -> " + (stitched ? "found" : "NOT FOUND") +
+                        " (" + std::to_string(blob_uc.size()) + " bytes)");
                     if (!stitched || blob_uc.empty()) return;
 
                     std::vector<uint8_t> rgba;
                     bool has_alpha = false;
                     int w = 0, h = 0;
                     if (!decode_tex_to_rgba(blob_uc, rgba, w, h,
-                                            &has_alpha, -1)) return;
-                    if (rgba.empty() || w <= 0 || h <= 0) return;
+                                            &has_alpha, -1)) {
+                        OutputLog::warn(
+                            "terrain LOD TEX decode FAILED: " + path +
+                            " (" + std::to_string(blob_uc.size()) + " bytes)");
+                        return;
+                    }
+                    if (rgba.empty() || w <= 0 || h <= 0) {
+                        OutputLog::warn(
+                            "terrain LOD TEX decode returned empty image: " + path);
+                        return;
+                    }
+                    OutputLog::info(
+                        "terrain LOD TEX decoded: " + path +
+                        " -> " + std::to_string(w) + "x" +
+                        std::to_string(h));
 
                     ID3D11ShaderResourceView* srv =
                         create_srv_from_rgba(device, w, h, rgba);
@@ -856,7 +873,14 @@
                                               w, h);
                 };
 
-                for (const auto& pe : palette) {
+                for (size_t pi = 0; pi < palette.size(); ++pi) {
+                    const auto& pe = palette[pi];
+                    OutputLog::info(
+                        "terrain LOD material[" + std::to_string(pi) +
+                        "]: base='" + pe.base_diffuse +
+                        "' normal='" + pe.base_normal +
+                        "' detail='" + pe.detail_diffuse +
+                        "' detail_normal='" + pe.detail_normal + "'");
                     if (S.cancel_requested.load()) {
                         OutputLog::warn("LOD palette decode aborted: cancel requested");
                         break;
@@ -930,7 +954,8 @@
                     }
                 } else {
                     OutputLog::warn(
-                        "terrain SPLAT parse failed; using EHF composite texture");
+                        "terrain SPLAT parse failed: " + splat_parsed.error +
+                        "; using EHF composite texture");
                 }
             }
 
