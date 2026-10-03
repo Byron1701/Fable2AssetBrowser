@@ -17,6 +17,11 @@ bool BakeEhfVistaPageComposite(const std::vector<uint8_t>& ehf,
     out_h = 0;
     out_name.clear();
 
+    if (Level::IsF3Ehf(ehf)) {
+        // F3 EHF vista data is not the F2 embedded TEX/page format.
+        return false;
+    }
+
     EhfParsedBody parsed;
     if (!ParseEhfBody(ehf, parsed)) {
         OutputLog::warn("vista pages: body parse failed: " + parsed.error);
