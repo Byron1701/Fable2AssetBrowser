@@ -274,20 +274,34 @@ bool Reader::Load(const std::string& path, std::string* error) {
 }
 
 bool Reader::Load(const std::vector<std::uint8_t>& bytes, std::string* error) {
+    // Diagnostic tracing only: no F3 parsing behaviour is changed here.
+    std::clog << "[MDL TRACE] Reader::Load input bytes=" << bytes.size() << '\n';
     const std::size_t payloadOffset = FindF3PayloadOffset(bytes);
+    std::clog << "[MDL TRACE] Reader::Load payloadOffset=";
+    if (payloadOffset == std::numeric_limits<std::size_t>::max())
+        std::clog << "NOT_FOUND";
+    else
+        std::clog << payloadOffset;
+    std::clog << '\n';
     if (payloadOffset == std::numeric_limits<std::size_t>::max()) {
         SetError(error, "Not recognised as a Fable III MDL");
         return false;
     }
 
     if (payloadOffset == 0) {
+        std::clog << "[MDL TRACE] Reader::Load copying native payload bytes=" << bytes.size() << '\n';
         bytes_ = bytes;
+        std::clog << "[MDL TRACE] Reader::Load native payload copy complete bytes_=" << bytes_.size() << '\n';
     } else {
         // MeshFile-wrapped exports contain the native F3 MDL after a small
         // export header.  Strip the wrapper once so all downstream parsing
         // remains byte-for-byte identical to a native F3 MDL.
+        std::clog << "[MDL TRACE] Reader::Load copying wrapped payload bytes="
+                  << (bytes.size() - payloadOffset) << '\n';
         bytes_.assign(bytes.begin() + static_cast<std::ptrdiff_t>(payloadOffset),
                       bytes.end());
+        std::clog << "[MDL TRACE] Reader::Load wrapped payload copy complete bytes_="
+                  << bytes_.size() << '\n';
     }
 
     try {
@@ -350,6 +364,14 @@ bool Reader::Parse(std::string* error) {
     // Node table. These are hash strings, not the skeleton hierarchy.
     if (!Need(4, error)) return false;
     const std::uint32_t nodeCount = ReadU32();
+    std::clog << "[MDL TRACE] Reader::Parse header materialCount="
+              << header_.materialCount
+              << " staticMeshCount=" << header_.staticMeshCount
+              << " skeletalMeshCount=" << header_.skeletalMeshCount
+              << " planeMeshCount=" << header_.planeMeshCount
+              << " unknownMeshCount0=" << header_.unknownMeshCount0
+              << " unknownMeshCount1=" << header_.unknownMeshCount1
+              << " nodeCount=" << nodeCount << '\n';
     for (std::uint32_t i = 0; i < nodeCount; ++i) {
         if (ReadCString(error).empty() && error && !error->empty()) return false;
     }
@@ -358,6 +380,8 @@ bool Reader::Parse(std::string* error) {
 
     const std::uint32_t renderMeshCount =
         header_.staticMeshCount + header_.skeletalMeshCount;
+    std::clog << "[MDL TRACE] Reader::Parse reserve meshes count="
+              << renderMeshCount << '\n';
     meshes_.reserve(renderMeshCount);
     for (std::uint32_t i = 0; i < renderMeshCount; ++i) {
         MDLMeshGeom mesh;
@@ -521,6 +545,11 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
     const std::uint32_t unknown = ReadU32();
     const std::uint32_t nVerts = ReadU32();
 
+    std::clog << "[MDL TRACE] Reader::ParseMesh mesh=" << meshIndex
+              << " skeletal=" << (skeletal ? "true" : "false")
+              << " nTris=" << nTris
+              << " nVerts=" << nVerts << '\n';
+
     (void)iMesh; // keep the positional index set at the top of ParseMesh
     mesh.materialIndex = iMaterial;
 
@@ -594,6 +623,9 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
         }
     }
 
+    std::clog << "[MDL TRACE] Reader::ParseMesh vertex allocation count="
+              << nVerts << " bytes~=" << (static_cast<std::size_t>(nVerts) * sizeof(Vertex))
+              << '\n';
     mesh.vertices.resize(nVerts);
     for (std::uint32_t i = 0; i < nVerts; ++i) {
         Vertex& v = mesh.vertices[i];
@@ -637,6 +669,10 @@ bool Reader::ParseMesh(std::uint32_t meshIndex, bool skeletal, MDLMeshGeom& mesh
         }
     }
 
+    std::clog << "[MDL TRACE] Reader::ParseMesh triangle allocation count="
+              << totalTris << " bytes~="
+              << (static_cast<std::size_t>(totalTris) * sizeof(std::array<std::uint16_t, 3>))
+              << '\n';
     mesh.triangles.reserve(static_cast<std::size_t>(totalTris));
     for (std::uint64_t i = 0; i < totalTris; ++i) {
         // Indices are unsigned 16-bit; do not reject values >= 0x8000.
