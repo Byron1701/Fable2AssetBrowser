@@ -169,6 +169,12 @@
                             TerrainTextureRegistry::LodPaletteEntry pe;
                             pe.base_diffuse = mat.diffuse;
                             pe.base_normal = mat.normal;
+                            pe.detail_diffuse = mat.detail_diffuse;
+                            pe.detail_normal = mat.detail_normal;
+                            pe.base_tile_scale = mat.tile_scale;
+                            pe.base_intensity = mat.intensity;
+                            pe.detail_tile_scale = mat.detail_tile_scale;
+                            pe.detail_intensity = mat.detail_intensity;
                             palette.push_back(pe);
 
                             if (picked_rgba.empty() && !mat.diffuse.empty()) {
@@ -986,9 +992,10 @@
                     + std::to_string(decoded_count) + "/"
                     + std::to_string(palette.size() * 4) + " maps OK");
 
-                Level::EhfParsedBody splat_parsed;
-                if (Level::ParseEhfBody(g_pending_terrain_ehf_bytes,
-                                        splat_parsed)) {
+                if (!Level::IsF3Ehf(g_pending_terrain_ehf_bytes)) {
+                    Level::EhfParsedBody splat_parsed;
+                    if (Level::ParseEhfBody(g_pending_terrain_ehf_bytes,
+                                            splat_parsed)) {
                     progress_update(88, 100, "Building terrain splat shader...");
                     const auto& fresh_thumbs = EhfLodThumbnails::Get();
                     bool splat_ok = TerrainSplat::Build(
@@ -1016,10 +1023,17 @@
                         OutputLog::warn(
                             "terrain SPLAT shader unavailable; using EHF composite texture");
                     }
+                    } else {
+                        OutputLog::warn(
+                            "terrain SPLAT parse failed: " + splat_parsed.error +
+                            "; using EHF composite texture");
+                    }
                 } else {
-                    OutputLog::warn(
-                        "terrain SPLAT parse failed: " + splat_parsed.error +
-                        "; using EHF composite texture");
+                    // F3 EHF has its own verified terrain material section.
+                    // It must not be passed to the F2 embedded-TEX/SPLAT parser.
+                    OutputLog::info(
+                        "terrain SPLAT: F3 EHF uses native material references; "
+                        "F2 SPLAT parser skipped");
                 }
             }
 
