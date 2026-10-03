@@ -15,14 +15,59 @@ bool is_f3_mdl_buffer(const std::vector<unsigned char>& data)
 bool parse_f3_mdl_info(const std::vector<unsigned char>& data,
                               MDLInfo& out)
 {
-    const std::vector<std::uint8_t> bytes(data.begin(), data.end());
-    if (!F3MDL::Reader::IsF3MDL(bytes)) return false;
+    OutputLog::info("[MDL TRACE] parse_f3_mdl_info BEGIN bytes=" +
+                    std::to_string(data.size()));
+    try {
+        OutputLog::info("[MDL TRACE] copying input to F3 byte buffer bytes=" +
+                        std::to_string(data.size()));
+        const std::vector<std::uint8_t> bytes(data.begin(), data.end());
+        OutputLog::info("[MDL TRACE] F3 byte buffer ready bytes=" +
+                        std::to_string(bytes.size()));
 
-    F3MDL::Reader reader;
-    std::string error;
-    if (!reader.Load(bytes, &error)) {
-        return false;
-    }
+        const bool recognised = F3MDL::Reader::IsF3MDL(bytes);
+        OutputLog::info("[MDL TRACE] IsF3MDL=" +
+                        std::string(recognised ? "true" : "false"));
+        if (!recognised) return false;
+
+        F3MDL::Reader reader;
+        std::string error;
+        OutputLog::info("[MDL TRACE] Reader::Load BEGIN bytes=" +
+                        std::to_string(bytes.size()));
+        try {
+            if (!reader.Load(bytes, &error)) {
+                OutputLog::warn("[MDL TRACE] Reader::Load returned false: " +
+                                (error.empty() ? std::string("<no error>") : error));
+                return false;
+            }
+        } catch (const std::bad_alloc&) {
+            OutputLog::error("[MDL TRACE] Reader::Load BAD_ALLOC bytes=" +
+                             std::to_string(bytes.size()) +
+                             " (failure occurred before Reader::Load completed)");
+            throw;
+        }
+        OutputLog::info("[MDL TRACE] Reader::Load complete");
+
+        const auto& skel = reader.GetSkeleton();
+        const auto& mats = reader.GetMaterials();
+        const auto& meshes = reader.GetMeshes();
+        OutputLog::info("[MDL TRACE] reader results bones=" +
+                        std::to_string(skel.bones.size()) +
+                        " materials=" + std::to_string(mats.size()) +
+                        " meshes=" + std::to_string(meshes.size()));
+
+        out = {};
+        out.Magic = "F3MDL";
+        out.HeaderSize = 0x0C;
+        out.BoneCount = static_cast<std::uint32_t>(skel.bones.size());
+        out.BoneTransformCount = out.BoneCount;
+        out.HasBoneTransforms = !skel.bones.empty();
+
+        OutputLog::info("[MDL TRACE] reserve Bones count=" +
+                        std::to_string(skel.bones.size()));
+        out.Bones.reserve(skel.bones.size());
+        OutputLog::info("[MDL TRACE] reserve BoneTransforms count=" +
+                        std::to_string(skel.bones.size()));
+        out.BoneTransforms.reserve(skel.bones.size());
 
     const auto& skel = reader.GetSkeleton();
     const auto& mats = reader.GetMaterials();
@@ -54,10 +99,21 @@ bool parse_f3_mdl_info(const std::vector<unsigned char>& data,
     }
 
     out.MeshCount = static_cast<std::uint32_t>(meshes.size());
+    OutputLog::info("[MDL TRACE] reserve Meshes count=" +
+                    std::to_string(meshes.size()));
     out.Meshes.reserve(meshes.size());
+    OutputLog::info("[MDL TRACE] reserve MeshBuffers count=" +
+                    std::to_string(meshes.size()));
     out.MeshBuffers.reserve(meshes.size());
 
+    std::size_t mesh_index = 0;
     for (const auto& m : meshes) {
+        OutputLog::info("[MDL TRACE] convert mesh[" +
+                        std::to_string(mesh_index) + "] name='" + m.name +
+                        "' vertices=" + std::to_string(m.vertices.size()) +
+                        " triangles=" + std::to_string(m.triangles.size()) +
+                        " skeletal=" + std::string(m.skeletal ? "true" : "false"));
+        ++mesh_index;
         MDLMeshInfo mi;
         mi.MeshName = m.name;
         mi.MaterialCount = 1;
@@ -89,7 +145,17 @@ bool parse_f3_mdl_info(const std::vector<unsigned char>& data,
         out.MeshBuffers.push_back(std::move(mb));
     }
 
+    OutputLog::info("[MDL TRACE] parse_f3_mdl_info COMPLETE");
     return true;
+    } catch (const std::bad_alloc&) {
+        OutputLog::error("[MDL TRACE] parse_f3_mdl_info BAD_ALLOC bytes=" +
+                         std::to_string(data.size()));
+        throw;
+    } catch (const std::exception& ex) {
+        OutputLog::error("[MDL TRACE] parse_f3_mdl_info exception: " +
+                         std::string(ex.what()));
+        throw;
+    }
 }
 
 bool build_f3_mdl_geometry(const std::vector<unsigned char>& data,
