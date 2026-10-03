@@ -1,5 +1,5 @@
 #include "F3MDLReader.h"
-#include "Utilities/DebugLog.h"
+#include "UI/OutputLog.h"
 
 #include <algorithm>
 #include <cmath>
