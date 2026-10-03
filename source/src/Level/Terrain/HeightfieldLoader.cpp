@@ -584,13 +584,10 @@ bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
         return false;
     }
 
-    // The verified material table begins immediately after the complete
-    // patch-grid records. Each entry contains two texture pairs. The first
-    // pair is the painted/base material; the second pair is the common
-    // secondary/detail material. The four paths are null-terminated and are
-    // followed by 13 bytes of entry parameters. The table count is LE u32.
-    // This layout is taken directly from the supplied Bowerstone Castle and
-    // Brightwall Village EHF byte streams; no F2 body layout is used here.
+    // Verified F3 material table: count followed by entries consisting of
+    // diffuse path, normal path, and 13 bytes of entry metadata. This is the
+    // byte sequence present in both supplied Bowerstone Castle and Brightwall
+    // Village EHF files. It is deliberately independent of the F2 EHF body.
     size_t pos = size_t(patch_end);
     if (pos + 4 > bytes.size()) {
         out.error = "F3 EHF ends before material-table count";
@@ -606,9 +603,8 @@ bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
     out.materials.reserve(count);
     for (uint32_t i = 0; i < count; ++i) {
         F3EhfTerrainMaterial m;
-        std::string* dst[4] = { &m.diffuse, &m.normal,
-                                &m.detail_diffuse, &m.detail_normal };
-        for (int s = 0; s < 4; ++s) {
+        std::string* dst[2] = { &m.diffuse, &m.normal };
+        for (int s = 0; s < 2; ++s) {
             const size_t start = pos;
             while (pos < bytes.size() && bytes[pos] != 0) {
                 ++pos;
@@ -626,7 +622,7 @@ bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
             ++pos;
         }
         if (pos + 13 > bytes.size()) {
-            out.error = "F3 EHF material parameters are truncated";
+            out.error = "F3 EHF material metadata is truncated";
             return false;
         }
         pos += 13;
