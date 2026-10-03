@@ -153,8 +153,72 @@
                     }
                 }
 
-                // F3 EHF terrain uses the verified patch-grid representation;
-                // do not send it through the F2 embedded render-tile parser.
+                // F3 EHF terrain stores its terrain texture references in
+                // the post-patch resource area. Resolve those references through
+                // the existing F3 TEX/BNK loader; do not send the F3 patch grid
+                // through the F2 embedded-TEX parser.
+                if (g_pending_terrain_f3_ehf && picked_rgba.empty()) {
+                    Level::F3EhfTerrainMaterials f3_materials;
+                    if (Level::DecodeF3EhfTerrainMaterials(
+                            g_pending_terrain_ehf_bytes, f3_materials)) {
+                        std::vector<TerrainTextureRegistry::LodPaletteEntry> palette;
+                        palette.reserve(f3_materials.entries.size());
+                        int decoded_count = 0;
+
+                        for (const auto& mat : f3_materials.entries) {
+                            TerrainTextureRegistry::LodPaletteEntry pe;
+                            pe.base_diffuse = mat.diffuse;
+                            pe.base_normal = mat.normal;
+                            palette.push_back(pe);
+
+                            if (picked_rgba.empty() && !mat.diffuse.empty()) {
+                                const std::string want =
+                                    std::filesystem::path(mat.diffuse).filename().string();
+                                std::vector<unsigned char> blob_uc;
+                                bool stitched = false;
+                                try {
+                                    stitched = build_any_tex_buffer_for_name(
+                                        want, blob_uc,
+                                        g_pending_terrain_level_entry.bnk_path);
+                                } catch (...) {
+                                    stitched = false;
+                                }
+
+                                if (stitched && !blob_uc.empty()) {
+                                    std::vector<uint8_t> rgba;
+                                    bool has_alpha = false;
+                                    int tw = 0, th = 0;
+                                    if (decode_tex_to_rgba(
+                                            blob_uc, rgba, tw, th,
+                                            &has_alpha, -1)) {
+                                        picked_rgba = std::move(rgba);
+                                        picked_w = tw;
+                                        picked_h = th;
+                                        picked_label =
+                                            "f3_ehf[" + want + "]";
+                                        uv_scale = 16.0f;
+                                        ++decoded_count;
+                                    }
+                                }
+                            }
+                        }
+
+                        TerrainTextureRegistry::SetLodPalette(
+                            std::move(palette));
+
+                        OutputLog::info(
+                            "F3 EHF terrain materials: " +
+                            std::to_string(f3_materials.entries.size()) +
+                            " diffuse references, " +
+                            std::to_string(decoded_count) +
+                            " texture(s) decoded");
+                    } else {
+                        OutputLog::warn(
+                            "F3 EHF terrain materials: " +
+                            f3_materials.error);
+                    }
+                }
+
                 if (picked_rgba.empty()) {
                     std::vector<uint8_t> atlas_rgba;
                     int atlas_w = 0, atlas_h = 0;
