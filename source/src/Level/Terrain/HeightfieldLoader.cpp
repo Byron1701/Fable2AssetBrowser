@@ -541,6 +541,103 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
     return true;
 }
 
+bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
+                                 F3EhfTerrainMaterials& out)
+{
+    out = {};
+    constexpr char kMagic[] = "HeightFieldGraphicsFile";
+    constexpr size_t kMagicLen = sizeof(kMagic) - 1;
+    constexpr size_t kHeader = 0x47;
+    constexpr size_t kPatchStride = 10440;
+
+    if (bytes.size() < kHeader ||
+        std::memcmp(bytes.data(), kMagic, kMagicLen) != 0) {
+        out.error = "F3 EHF magic/header mismatch";
+        return false;
+    }
+
+    auto le_u32 = [&](size_t o) -> uint32_t {
+        return uint32_t(bytes[o]) |
+               (uint32_t(bytes[o + 1]) << 8) |
+               (uint32_t(bytes[o + 2]) << 16) |
+               (uint32_t(bytes[o + 3]) << 24);
+    };
+    auto le_f32 = [&](size_t o) -> float {
+        uint32_t u = le_u32(o);
+        float f = 0.0f;
+        std::memcpy(&f, &u, sizeof(f));
+        return f;
+    };
+
+    const uint32_t width = le_u32(0x23);
+    const uint32_t height = le_u32(0x27);
+    const float spacing = le_f32(0x2B);
+    const uint32_t patch_x = uint32_t(le_f32(0x37));
+    const uint32_t patch_y = uint32_t(le_f32(0x3B));
+    const uint64_t patch_end = uint64_t(kHeader) +
+        uint64_t(patch_x) * uint64_t(patch_y) * kPatchStride;
+    if (width < 2 || height < 2 || width > 8192 || height > 8192 ||
+        patch_x == 0 || patch_y == 0 ||
+        (width - 1) / 32 != patch_x || (height - 1) / 32 != patch_y ||
+        !std::isfinite(spacing) || spacing <= 0.0f || patch_end > bytes.size()) {
+        out.error = "F3 EHF patch-grid header is invalid";
+        return false;
+    }
+
+    // The verified material table begins immediately after the complete
+    // patch-grid records. Each entry contains two texture pairs. The first
+    // pair is the painted/base material; the second pair is the common
+    // secondary/detail material. The four paths are null-terminated and are
+    // followed by 13 bytes of entry parameters. The table count is LE u32.
+    // This layout is taken directly from the supplied Bowerstone Castle and
+    // Brightwall Village EHF byte streams; no F2 body layout is used here.
+    size_t pos = size_t(patch_end);
+    if (pos + 4 > bytes.size()) {
+        out.error = "F3 EHF ends before material-table count";
+        return false;
+    }
+    const uint32_t count = le_u32(pos);
+    pos += 4;
+    if (count == 0 || count > 256) {
+        out.error = "F3 EHF material count is implausible";
+        return false;
+    }
+
+    out.materials.reserve(count);
+    for (uint32_t i = 0; i < count; ++i) {
+        F3EhfTerrainMaterial m;
+        std::string* dst[4] = { &m.diffuse, &m.normal,
+                                &m.detail_diffuse, &m.detail_normal };
+        for (int s = 0; s < 4; ++s) {
+            const size_t start = pos;
+            while (pos < bytes.size() && bytes[pos] != 0) {
+                ++pos;
+                if (pos - start > 512) {
+                    out.error = "F3 EHF material texture path is too long";
+                    return false;
+                }
+            }
+            if (pos >= bytes.size()) {
+                out.error = "F3 EHF material texture path is unterminated";
+                return false;
+            }
+            dst[s]->assign(reinterpret_cast<const char*>(bytes.data() + start),
+                           pos - start);
+            ++pos;
+        }
+        if (pos + 13 > bytes.size()) {
+            out.error = "F3 EHF material parameters are truncated";
+            return false;
+        }
+        pos += 13;
+        out.materials.push_back(std::move(m));
+    }
+
+    out.count = count;
+    out.ok = true;
+    return true;
+}
+
 bool DecodeF3EhfHeights(const std::vector<uint8_t>& bytes,
                         GhfHeights& out)
 {
