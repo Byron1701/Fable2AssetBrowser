@@ -4,7 +4,52 @@ static bool parse_prop_model_buffer(const std::vector<unsigned char>& buf,
                                     std::string* reason = nullptr)
 {
     CachedPropModel tmp;
-    const bool main_ok = parse_mdl_info(buf, tmp.info, model_path);
+    const char* stage = "initialisation";
+
+    OutputLog::info(
+        "level props: MDL diagnostic begin " + model_path +
+        " bytes=" + std::to_string(buf.size()));
+
+    auto log_counts = [&]() {
+        OutputLog::info(
+            "level props: MDL diagnostic " + model_path +
+            " stage=" + stage +
+            " MeshCount=" + std::to_string(tmp.info.MeshCount) +
+            " Meshes=" + std::to_string(tmp.info.Meshes.size()) +
+            " MeshBuffers=" + std::to_string(tmp.info.MeshBuffers.size()) +
+            " geoms=" + std::to_string(tmp.geoms.size()));
+    };
+
+    auto run_stage = [&](const char* name, auto&& fn) {
+        stage = name;
+        OutputLog::info(
+            "level props: MDL diagnostic enter " + model_path +
+            " stage=" + stage);
+        try {
+            fn();
+        } catch (const std::bad_alloc&) {
+            log_counts();
+            OutputLog::error(
+                "level props: MDL diagnostic bad_alloc " + model_path +
+                " stage=" + stage);
+            throw;
+        } catch (const std::exception& ex) {
+            log_counts();
+            OutputLog::error(
+                "level props: MDL diagnostic exception " + model_path +
+                " stage=" + stage + " (" + ex.what() + ")");
+            throw;
+        }
+        log_counts();
+    };
+
+    bool main_ok = false;
+    run_stage("parse_mdl_info / F3-or-legacy reader", [&]() {
+        main_ok = parse_mdl_info(buf, tmp.info, model_path);
+    });
+    OutputLog::info(
+        "level props: MDL diagnostic parse_mdl_info result " + model_path +
+        " main_ok=" + std::string(main_ok ? "true" : "false"));
 
     auto missing_count = [&]() -> size_t {
         size_t empty = 0;
@@ -26,16 +71,34 @@ static bool parse_prop_model_buffer(const std::vector<unsigned char>& buf,
             }
         }
         if (all_empty) {
-            reparse_mdl_buffers_via_polymsh_scan(buf, tmp.info);
+            run_stage("reparse_mdl_buffers_via_polymsh_scan", [&]() {
+                reparse_mdl_buffers_via_polymsh_scan(buf, tmp.info);
+            });
         }
     }
 
     if (missing_count() > 0) {
-        reparse_mdl_missing_buffers_optstr(buf, tmp.info);
+        const size_t before = missing_count();
+        run_stage("reparse_mdl_missing_buffers_optstr", [&]() {
+            reparse_mdl_missing_buffers_optstr(buf, tmp.info);
+        });
+        OutputLog::info(
+            "level props: MDL diagnostic missing-buffer count " + model_path +
+            " before=" + std::to_string(before) +
+            " after=" + std::to_string(missing_count()));
     }
+
     if (missing_count() > 0) {
-        reparse_mdl_as_foliage_48b(buf, tmp.info);
+        const size_t before = missing_count();
+        run_stage("reparse_mdl_as_foliage_48b", [&]() {
+            reparse_mdl_as_foliage_48b(buf, tmp.info);
+        });
+        OutputLog::info(
+            "level props: MDL diagnostic foliage-reparse missing count " +
+            model_path + " before=" + std::to_string(before) +
+            " after=" + std::to_string(missing_count()));
     }
+
     {
         std::string lp = model_path;
         std::transform(lp.begin(), lp.end(), lp.begin(),
@@ -46,7 +109,9 @@ static bool parse_prop_model_buffer(const std::vector<unsigned char>& buf,
             (lp.find("/exterior.mdl") != std::string::npos ||
              lp.find("/interior.mdl") != std::string::npos);
         if (multi_instance_target) {
-            reparse_mdl_multi_instance_buffers(buf, tmp.info);
+            run_stage("reparse_mdl_multi_instance_buffers", [&]() {
+                reparse_mdl_multi_instance_buffers(buf, tmp.info);
+            });
         }
     }
 
@@ -55,6 +120,9 @@ static bool parse_prop_model_buffer(const std::vector<unsigned char>& buf,
             *reason = "parse_mdl_info failed, bytes=" +
                       std::to_string(buf.size());
         }
+        OutputLog::warn(
+            "level props: MDL diagnostic rejected after info parse " +
+            model_path);
         return false;
     }
 
@@ -62,9 +130,23 @@ static bool parse_prop_model_buffer(const std::vector<unsigned char>& buf,
         buf.size() >= 8 &&
         (std::memcmp(buf.data(), "MeshFile", 8) == 0 ||
          std::memcmp(buf.data(), "DefMeshF", 8) == 0);
+
+    OutputLog::info(
+        "level props: MDL diagnostic geometry dispatch " + model_path +
+        " header=" + std::string(has_mesh_header ? "engine" : "legacy") +
+        " missing=" + std::to_string(missing_count()));
+
     if (has_mesh_header) {
         tmp.geoms.clear();
-        if (!build_mdl_engine_geometry(buf, tmp.geoms) || tmp.geoms.empty()) {
+        bool engine_ok = false;
+        run_stage("build_mdl_engine_geometry", [&]() {
+            engine_ok = build_mdl_engine_geometry(buf, tmp.geoms);
+        });
+        OutputLog::info(
+            "level props: MDL diagnostic build_mdl_engine_geometry result " +
+            model_path + " ok=" + std::string(engine_ok ? "true" : "false") +
+            " geoms=" + std::to_string(tmp.geoms.size()));
+        if (!engine_ok || tmp.geoms.empty()) {
             if (reason) {
                 *reason = "engine decode produced 0 geoms, bytes=" +
                           std::to_string(buf.size());
@@ -72,7 +154,12 @@ static bool parse_prop_model_buffer(const std::vector<unsigned char>& buf,
             return false;
         }
     } else {
-        parse_mdl_geometry(buf, tmp.info, tmp.geoms);
+        run_stage("parse_mdl_geometry", [&]() {
+            parse_mdl_geometry(buf, tmp.info, tmp.geoms);
+        });
+        OutputLog::info(
+            "level props: MDL diagnostic parse_mdl_geometry result " +
+            model_path + " geoms=" + std::to_string(tmp.geoms.size()));
         if (tmp.geoms.empty()) {
             if (reason) {
                 *reason = "parse_mdl_geometry produced 0 geoms"
@@ -90,6 +177,9 @@ static bool parse_prop_model_buffer(const std::vector<unsigned char>& buf,
     if (reason) {
         *reason = "ok, geoms=" + std::to_string(out.geoms.size());
     }
+    OutputLog::info(
+        "level props: MDL diagnostic success " + model_path +
+        " geoms=" + std::to_string(out.geoms.size()));
     return true;
 }
 
