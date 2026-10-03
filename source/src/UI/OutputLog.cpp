@@ -27,14 +27,14 @@ struct Entry {
 
 std::vector<Entry> g_entries;
 std::mutex         g_mutex;
-constexpr size_t   kMaxEntries = 500;
+constexpr size_t   kMaxEntries = 5000;
 
 bool   g_open      = false;
 bool   g_locked    = false;
 
 float  g_anim_h    = 0.0f;
 constexpr float kBarHeight   = 26.0f;
-constexpr float kPanelHeight = 220.0f;
+constexpr float kPanelHeight = 520.0f;
 
 std::string g_blob;
 size_t      g_blob_entry_count = static_cast<size_t>(-1);
@@ -112,6 +112,14 @@ bool is_user_status_message(const std::string& msg) {
 }
 
 bool is_noisy_message(Level lvl, const std::string& msg) {
+    // F3 level/MDL diagnostics are deliberately always visible in the Output Log.
+    // They are also written to DebugLog, but must not disappear behind the normal
+    // UI noise filter while diagnosing level loading failures.
+    if (contains(msg, "MDL diagnostic") ||
+        starts_with(msg, "[F3 MDL TRACE]") ||
+        starts_with(msg, "[MDL TRACE]")) {
+        return false;
+    }
     if (contains(msg, "failed to decode (zero_mips)")) return true;
     if (starts_with(msg, "texture '") &&
         contains(msg, "failed to decode")) return true;
