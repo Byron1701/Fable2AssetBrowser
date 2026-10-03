@@ -6,6 +6,11 @@ bool Open(const FlatAssetEntry& entry)
         OutputLog::info("loading level '" + entry.name + "' ...");
     }
     loader_progress_update(8, 100, "Extracting " + entry.name);
+    OutputLog::warn("[LEVEL TRACE] ===== BEGIN LEVEL LOAD =====");
+    OutputLog::warn("[LEVEL TRACE] name='" + entry.name + "'");
+    OutputLog::warn("[LEVEL TRACE] path='" + entry.full_path + "'");
+    OutputLog::warn("[LEVEL TRACE] bnk='" + entry.bnk_path + "' index=" +
+                    std::to_string(entry.file_index));
     OutputLog::warn("[LEVEL] Open: starting level load for '" + entry.name + "' from " + entry.full_path);
     OutputLog::warn("[LEVEL] Open: extracting engine_level from BNK index " + std::to_string(entry.file_index));
 
@@ -52,6 +57,10 @@ bool Open(const FlatAssetEntry& entry)
                          + info.error);
         return false;
     }
+    OutputLog::warn("[LEVEL TRACE] ParseEngineLevel success version=" +
+                    std::to_string(info.version) + " entries=" +
+                    std::to_string(info.entries.size()) + "/" +
+                    std::to_string(info.entry_count));
     OutputLog::warn("[LEVEL] Open: ParseEngineLevel succeeded: version=" + std::to_string(info.version) + " entries=" + std::to_string(info.entries.size()) + "/" + std::to_string(info.entry_count));
     if (bail_if_cancelled("after-parse")) return false;
 
@@ -80,6 +89,12 @@ bool Open(const FlatAssetEntry& entry)
        << " t32=" << n_t32
        << " other=" << n_other << ")";
     OutputLog::success(os.str());
+    OutputLog::warn("[LEVEL TRACE] prop_blocks=" +
+                    std::to_string(info.prop_blocks.size()) +
+                    " entity_contents=" +
+                    std::to_string(info.entity_contents.size()) +
+                    " entity_gameplay=" +
+                    std::to_string(info.entity_gameplay.size()));
 
     if (Creation::IsCustomLooseLevel(entry)) {
         FoliageEdit::PopulateFromParsedBlocks(info.prop_blocks);
