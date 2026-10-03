@@ -300,6 +300,8 @@ static bool load_cached_prop_model(const std::string& model_path,
                                    const std::string& preferred_body_bnk,
                                    CachedPropModel& cached)
 {
+    OutputLog::warn("[F3 MDL TRACE] BUILD=eb49343a LEVEL_PROP_ENTRY model=" + model_path +
+                    " preferred_bnk=" + preferred_body_bnk);
     const bool shell_pair_model = is_shell_pair_model_path(model_path);
     const std::string want_full = normalized_asset_path(model_path);
     const char* stage = "initialisation";
@@ -328,10 +330,14 @@ static bool load_cached_prop_model(const std::string& model_path,
         }
 
         std::vector<unsigned char> buf;
+        OutputLog::warn("[F3 MDL TRACE] build preferred-body ENTER model=" + model_path +
+                        " bnk=" + preferred_body_bnk);
         stage = "build preferred-body MDL buffer";
         if (build_mdl_buffer_for_name_with_body(model_path,
                                                 preferred_body_bnk,
                                                 buf)) {
+            OutputLog::warn("[F3 MDL TRACE] build preferred-body EXIT model=" + model_path +
+                            " bytes=" + std::to_string(buf.size()));
             OutputLog::info(
                 "level props: MDL diagnostic call " + model_path +
                 " source=preferred-body bytes=" + std::to_string(buf.size()));
