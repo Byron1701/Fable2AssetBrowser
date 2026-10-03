@@ -1,6 +1,7 @@
 static void prop_worker_run(LevelPropStreamState* s)
 {
     std::string current_model;
+    std::string allocation_stage;
     try {
         const float terrain_cx =
             (float(s->terrain_width) - 1.0f) * 0.5f * s->terrain_tile_size;
@@ -24,8 +25,10 @@ static void prop_worker_run(LevelPropStreamState* s)
                 continue;
             }
 
+            allocation_stage = "cache[model_path]";
             auto& cached = cache[block.model_path];
             if (!cached.loaded) {
+                allocation_stage = "load_cached_prop_model";
                 load_cached_prop_model(block.model_path,
                                        s->model_body_bnk,
                                        cached);
@@ -76,10 +79,13 @@ static void prop_worker_run(LevelPropStreamState* s)
                 break;
             }
 
+            allocation_stage = "combined geometry vector";
             std::vector<MDLMeshGeom> combined(cached.geoms.size());
+            allocation_stage = "chunk index vector";
             std::vector<size_t> chunk_index(cached.geoms.size(), 0);
             for (size_t gi = 0; gi < cached.geoms.size(); ++gi) {
                 const auto& src = cached.geoms[gi];
+                allocation_stage = "combined geometry reserve";
                 init_combined_prop_geom(combined[gi], src, block.model_path,
                                         block.instances.size(), block.type, 0);
             }
@@ -96,6 +102,7 @@ static void prop_worker_run(LevelPropStreamState* s)
                     if (!src.positions.empty() && !src.indices.empty()) {
                         if (would_exceed_combined_prop_limits(combined[gi],
                                                               src)) {
+                            allocation_stage = "flush combined geometry";
                             flush_combined_prop_geom(
                                 s->geoms, combined[gi], src, block.model_path,
                                 block.instances.size(), block.type,
@@ -111,6 +118,7 @@ static void prop_worker_run(LevelPropStreamState* s)
 
             for (auto& cg : combined) {
                 if (!cg.positions.empty() && !cg.indices.empty()) {
+                    allocation_stage = "final accumulated geoms push";
                     s->geoms.push_back(std::move(cg));
                 }
             }
