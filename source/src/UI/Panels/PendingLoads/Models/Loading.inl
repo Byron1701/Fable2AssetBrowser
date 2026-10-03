@@ -203,47 +203,66 @@ static bool load_cached_prop_model(const std::string& model_path,
 {
     const bool shell_pair_model = is_shell_pair_model_path(model_path);
     const std::string want_full = normalized_asset_path(model_path);
+    const char* stage = "initialisation";
 
-    if (shell_pair_model) {
-        std::vector<const FlatAssetEntry*> candidates =
-            collect_prop_model_candidates(model_path, preferred_body_bnk);
-        for (const FlatAssetEntry* candidate : candidates) {
-            if (!candidate ||
-                normalized_asset_path(candidate->full_path) != want_full) {
-                continue;
+    try {
+        if (shell_pair_model) {
+            stage = "collect shell-pair candidates";
+            std::vector<const FlatAssetEntry*> candidates =
+                collect_prop_model_candidates(model_path, preferred_body_bnk);
+            stage = "scan shell-pair candidates";
+            for (const FlatAssetEntry* candidate : candidates) {
+                if (!candidate ||
+                    normalized_asset_path(candidate->full_path) != want_full) {
+                    continue;
+                }
+                const FlatAssetEntry& entry = *candidate;
+
+                std::string method;
+                std::string fail_reason;
+                stage = "try shell-pair candidate body+header";
+                if (try_prop_model_candidate(entry, model_path, cached, method,
+                                             &fail_reason)) {
+                    return true;
+                }
             }
-            const FlatAssetEntry& entry = *candidate;
+        }
 
-            std::string method;
-            std::string fail_reason;
-            if (try_prop_model_candidate(entry, model_path, cached, method,
-                                         &fail_reason)) {
+        std::vector<unsigned char> buf;
+        stage = "build preferred-body MDL buffer";
+        if (build_mdl_buffer_for_name_with_body(model_path,
+                                                preferred_body_bnk,
+                                                buf)) {
+            std::string parse_reason;
+            stage = "parse preferred-body MDL buffer";
+            if (parse_prop_model_buffer(buf, model_path, cached, &parse_reason)) {
                 return true;
             }
         }
-    }
 
-    std::vector<unsigned char> buf;
-    if (build_mdl_buffer_for_name_with_body(model_path,
-                                            preferred_body_bnk,
-                                            buf)) {
-        std::string parse_reason;
-        if (parse_prop_model_buffer(buf, model_path, cached, &parse_reason)) {
-            return true;
+        stage = "collect model candidates";
+        const auto candidates =
+            collect_prop_model_candidates(model_path, preferred_body_bnk);
+        stage = "scan model candidates";
+        for (const FlatAssetEntry* entry : candidates) {
+            if (!entry) continue;
+            std::string method;
+            std::string fail_reason;
+            stage = "try candidate body+header/body";
+            if (try_prop_model_candidate(*entry, model_path, cached, method,
+                                          &fail_reason)) {
+                return true;
+            }
         }
-    }
 
-    const auto candidates =
-        collect_prop_model_candidates(model_path, preferred_body_bnk);
-    for (const FlatAssetEntry* entry : candidates) {
-        if (!entry) continue;
-        std::string method;
-        std::string fail_reason;
-        if (try_prop_model_candidate(*entry, model_path, cached, method,
-                                     &fail_reason)) {
-            return true;
-        }
+        return false;
+    } catch (const std::bad_alloc&) {
+        OutputLog::error("level props: load_cached_prop_model bad_alloc for " +
+                         model_path + " at " + stage);
+        throw;
+    } catch (const std::exception& ex) {
+        OutputLog::error("level props: load_cached_prop_model exception for " +
+                         model_path + " at " + stage + " (" + ex.what() + ")");
+        throw;
     }
-
-    return false;
 }
