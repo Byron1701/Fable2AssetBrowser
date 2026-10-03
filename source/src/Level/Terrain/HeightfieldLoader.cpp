@@ -613,10 +613,14 @@ bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
 
     const uint32_t width = le_u32(0x23);
     const uint32_t height = le_u32(0x27);
-    const uint32_t patch_x = uint32_t(
-        *reinterpret_cast<const float*>(bytes.data() + 0x37));
-    const uint32_t patch_y = uint32_t(
-        *reinterpret_cast<const float*>(bytes.data() + 0x3B));
+    auto le_f32 = [&](size_t o) -> float {
+        uint32_t u = le_u32(o);
+        float f = 0.0f;
+        std::memcpy(&f, &u, sizeof(f));
+        return f;
+    };
+    const uint32_t patch_x = uint32_t(le_f32(0x37));
+    const uint32_t patch_y = uint32_t(le_f32(0x3B));
     const uint64_t patch_end = uint64_t(kHeader) +
         uint64_t(patch_x) * uint64_t(patch_y) * kPatchStride;
 
