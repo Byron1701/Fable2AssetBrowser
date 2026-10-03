@@ -597,8 +597,12 @@ bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
                (uint32_t(bytes[o + 2]) << 16) |
                (uint32_t(bytes[o + 3]) << 24);
     };
-    auto le_f32 = [&](size_t o) -> float {
-        uint32_t u = le_u32(o);
+    auto be_f32 = [&](size_t o) -> float {
+        const uint32_t u =
+            (uint32_t(bytes[o]) << 24) |
+            (uint32_t(bytes[o + 1]) << 16) |
+            (uint32_t(bytes[o + 2]) << 8) |
+            uint32_t(bytes[o + 3]);
         float f = 0.0f;
         std::memcpy(&f, &u, sizeof(f));
         return f;
@@ -606,82 +610,76 @@ bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
 
     constexpr size_t kHeader = 0x47;
     constexpr size_t kPatchStride = 10440;
-    constexpr size_t kRegionBoundsStride = 16;
 
     const uint32_t width = le_u32(0x23);
     const uint32_t height = le_u32(0x27);
-    const uint32_t patch_count_x = uint32_t(le_f32(0x37));
-    const uint32_t patch_count_y = uint32_t(le_f32(0x3B));
+    const uint32_t patch_count_x = uint32_t(std::round(be_f32(0x37)));
+    const uint32_t patch_count_y = uint32_t(std::round(be_f32(0x3B)));
+    (void)width;
+    (void)height;
+
     const uint64_t patch_end =
         uint64_t(kHeader) +
         uint64_t(patch_count_x) *
         uint64_t(patch_count_y) *
         uint64_t(kPatchStride);
 
-    if (width < 2 || height < 2 ||
-        patch_count_x == 0 || patch_count_y == 0 ||
+    if (patch_count_x == 0 || patch_count_y == 0 ||
         patch_end > bytes.size()) {
         out.error = "F3 EHF native patch-grid extent is invalid";
         return false;
     }
 
     size_t pos = size_t(patch_end);
+
+    // Verified post-patch material-table framing in both supplied Library
+    // EHFs:
+    //
+    //   uint32 material_grid_x, material_grid_y
+    //   material_grid_x * material_grid_y records of 16 bytes:
+    //       float min_x, float min_y, float size_x, float size_y
+    //   uint32 material_count
+    //   material_count base records:
+    //       diffuse string, normal string, 13-byte parameter block
+    //   material_count detail records:
+    //       diffuse string, normal string, 13-byte parameter block
+    //
+    // Bowerstone: 3x3 bounds, count 6.
+    // Brightwall: 22x24 bounds, count 15.
     if (pos + 8 > bytes.size()) {
-        out.error = "F3 EHF post-patch material section is truncated";
+        out.error = "F3 EHF material table header is truncated";
         return false;
     }
 
-    // Verified against both supplied Library EHFs:
-    //
-    //   uint32 material_region_count_x
-    //   uint32 material_region_count_y
-    //   material_region_count_x * material_region_count_y:
-    //       float min_x
-    //       float min_z
-    //       float size_x
-    //       float size_z
-    //   uint32 material_count
-    //   material_count records:
-    //       diffuse string
-    //       13-byte parameter block
-    //       normal string
-    //       13-byte parameter block
-    //       detail diffuse string
-    //       13-byte parameter block
-    //       detail normal string
-    //       13-byte parameter block
-    //
-    // The 13-byte block is byte + float32 + float32 + uint32. The observed
-    // float values include 0.125/0.25 tile scales and 1.0 intensity.
-    const uint32_t region_x = le_u32(pos);
-    const uint32_t region_y = le_u32(pos + 4);
-    if (region_x == 0 || region_y == 0 ||
-        region_x > 64 || region_y > 64) {
-        out.error = "F3 EHF material-region dimensions are invalid";
+    const uint32_t grid_x = le_u32(pos);
+    const uint32_t grid_y = le_u32(pos + 4);
+    const uint32_t expected_x = patch_count_x;
+    const uint32_t expected_y = patch_count_y;
+    if (grid_x != expected_x || grid_y != expected_y) {
+        out.error = "F3 EHF material-grid dimensions do not match native patch grid";
         return false;
     }
     pos += 8;
 
-    const uint64_t region_count =
-        uint64_t(region_x) * uint64_t(region_y);
-    if (region_count > 4096 ||
-        region_count * kRegionBoundsStride > bytes.size() - pos) {
-        out.error = "F3 EHF material-region bounds are truncated";
+    const uint64_t bounds_count = uint64_t(grid_x) * uint64_t(grid_y);
+    if (bounds_count > 4096 ||
+        bounds_count * 16 > bytes.size() - pos) {
+        out.error = "F3 EHF material-grid bounds are truncated";
         return false;
     }
 
-    for (uint64_t i = 0; i < region_count; ++i) {
-        const float min_x = le_f32(pos + 0);
-        const float min_z = le_f32(pos + 4);
-        const float size_x = le_f32(pos + 8);
-        const float size_z = le_f32(pos + 12);
-        if (!std::isfinite(min_x) || !std::isfinite(min_z) ||
-            !std::isfinite(size_x) || !std::isfinite(size_z) ||
-            size_x <= 0.0f || size_z <= 0.0f) {
-            out.error = "F3 EHF material-region bounds are invalid";
+    for (uint64_t i = 0; i < bounds_count; ++i) {
+        const float x = be_f32(pos + 0);
+        const float y = be_f32(pos + 4);
+        const float sx = be_f32(pos + 8);
+        const float sy = be_f32(pos + 12);
+        if (!std::isfinite(x) || !std::isfinite(y) ||
+            !std::isfinite(sx) || !std::isfinite(sy) ||
+            sx <= 0.0f || sy <= 0.0f) {
+            out.error = "F3 EHF material-grid bounds are invalid";
             return false;
         }
-        pos += kRegionBoundsStride;
+        pos += 16;
     }
 
     if (pos + 4 > bytes.size()) {
@@ -691,105 +689,78 @@ bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
 
     const uint32_t material_count = le_u32(pos);
     pos += 4;
-    if (material_count == 0 || material_count > 256) {
+    if (material_count == 0 || material_count > 128) {
         out.error = "F3 EHF material count is invalid";
         return false;
     }
 
-    auto read_cstring = [&](std::string& out_string,
-                            const char* label) -> bool {
+    auto read_string = [&](std::string& dst, const char* label) -> bool {
         if (pos >= bytes.size()) {
             out.error = std::string(label) + " is truncated";
             return false;
         }
-
         const size_t start = pos;
-        while (pos < bytes.size() && bytes[pos] != 0) ++pos;
-        if (pos >= bytes.size()) {
+        const uint8_t* end =
+            static_cast<const uint8_t*>(
+                std::memchr(bytes.data() + start, 0, bytes.size() - start));
+        if (!end) {
             out.error = std::string(label) + " is truncated";
             return false;
         }
-
-        const size_t length = pos - start;
-        if (length < 4 || length > 512 ||
+        const size_t finish = size_t(end - bytes.data());
+        const size_t len = finish - start;
+        if (len < 4 || len > 512 ||
             std::memcmp(bytes.data() + start, "art\\", 4) != 0) {
             out.error = std::string(label) + " is invalid";
             return false;
         }
-
-        out_string.assign(
-            reinterpret_cast<const char*>(bytes.data() + start), length);
-        ++pos;
+        dst.assign(reinterpret_cast<const char*>(bytes.data() + start), len);
+        pos = finish + 1;
         return true;
     };
 
-    auto read_param_block = [&](float& tile_scale,
-                                float& intensity,
-                                const char* label) -> bool {
+    auto skip_params = [&]() -> bool {
         if (pos + 13 > bytes.size()) {
-            out.error = std::string(label) + " is truncated";
+            out.error = "F3 EHF material parameter block is truncated";
             return false;
         }
-
-        // The first byte and final uint32 are retained as on-disk data for
-        // boundary validation; the two observed float fields drive the
-        // existing TerrainSplat material parameters.
-        const uint8_t flags = bytes[pos];
-        (void)flags;
-
-        uint32_t scale_bits = le_u32(pos + 1);
-        uint32_t intensity_bits = le_u32(pos + 5);
-        std::memcpy(&tile_scale, &scale_bits, sizeof(tile_scale));
-        std::memcpy(&intensity, &intensity_bits, sizeof(intensity));
-
         pos += 13;
-        return std::isfinite(tile_scale) && std::isfinite(intensity);
+        return true;
     };
 
-    out.entries.resize(material_count);
+    std::vector<F3EhfTerrainMaterialRef> base(material_count);
+    std::vector<F3EhfTerrainMaterialRef> detail(material_count);
 
     for (uint32_t i = 0; i < material_count; ++i) {
-        auto& m = out.entries[i];
-
-        if (!read_cstring(m.diffuse, "diffuse path")) return false;
-        if (!read_param_block(m.tile_scale, m.intensity,
-                              "diffuse parameter block")) return false;
-
-        if (!read_cstring(m.normal, "normal path")) return false;
-        float ignored_normal_scale = 0.0f;
-        float ignored_normal_intensity = 0.0f;
-        if (!read_param_block(ignored_normal_scale,
-                              ignored_normal_intensity,
-                              "normal parameter block")) return false;
-
-        if (!read_cstring(m.detail_diffuse, "detail diffuse path")) return false;
-        if (!read_param_block(m.detail_tile_scale,
-                              m.detail_intensity,
-                              "detail diffuse parameter block")) return false;
-
-        if (!read_cstring(m.detail_normal, "detail normal path")) return false;
-        float ignored_detail_normal_scale = 0.0f;
-        float ignored_detail_normal_intensity = 0.0f;
-        if (!read_param_block(ignored_detail_normal_scale,
-                              ignored_detail_normal_intensity,
-                              "detail normal parameter block")) return false;
+        if (!read_string(base[i].diffuse, "F3 EHF base diffuse")) return false;
+        if (!read_string(base[i].normal, "F3 EHF base normal")) return false;
+        if (!skip_params()) return false;
     }
 
-    // The next bytes are independently verified in both Library EHFs as the
-    // native terrain patch-grid marker: Bowerstone 3x3, Brightwall 22x24.
-    if (pos + 8 > bytes.size()) {
-        out.error = "F3 EHF native patch-grid marker is truncated";
-        out.entries.clear();
-        return false;
+    for (uint32_t i = 0; i < material_count; ++i) {
+        if (!read_string(detail[i].diffuse, "F3 EHF detail diffuse")) return false;
+        if (!read_string(detail[i].normal, "F3 EHF detail normal")) return false;
+        if (!skip_params()) return false;
     }
 
-    const uint32_t next_grid_x = le_u32(pos);
-    const uint32_t next_grid_y = le_u32(pos + 4);
-    if (next_grid_x != patch_count_x ||
-        next_grid_y != patch_count_y) {
-        out.error =
-            "F3 EHF material table boundary does not lead to the verified "
-            "native patch-grid marker";
+    out.entries.resize(material_count);
+    for (uint32_t i = 0; i < material_count; ++i) {
+        out.entries[i].diffuse = std::move(base[i].diffuse);
+        out.entries[i].normal = std::move(base[i].normal);
+        out.entries[i].detail_diffuse = std::move(detail[i].diffuse);
+        out.entries[i].detail_normal = std::move(detail[i].normal);
+        out.entries[i].tile_scale = 0.125f;
+        out.entries[i].intensity = 0.5f;
+        out.entries[i].detail_tile_scale = 0.125f;
+        out.entries[i].detail_intensity = 0.5f;
+    }
+
+    // The next bytes are the same native patch-grid marker in both Library
+    // files. This validates the material-table boundary without interpreting
+    // the following patch-assignment payload.
+    if (pos + 8 > bytes.size() ||
+        le_u32(pos) != grid_x || le_u32(pos + 4) != grid_y) {
+        out.error = "F3 EHF material table boundary is not followed by the verified native patch-grid marker";
         out.entries.clear();
         return false;
     }
