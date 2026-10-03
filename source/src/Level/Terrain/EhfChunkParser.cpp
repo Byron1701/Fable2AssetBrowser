@@ -129,6 +129,11 @@ bool ParseEhfBody(const std::vector<uint8_t>& ehf, EhfParsedBody& out)
         return false;
     }
 
+    if (IsF3Ehf(ehf)) {
+        out.error = "F3 EHF: native terrain material layout is not an F2 SPLAT body";
+        return false;
+    }
+
     uint32_t body_off  = be_u32(ehf.data() + 55);
     uint32_t body_size = be_u32(ehf.data() + 59);
     if (uint64_t(body_off) + body_size > ehf.size()) {
