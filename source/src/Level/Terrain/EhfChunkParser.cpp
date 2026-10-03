@@ -129,43 +129,6 @@ bool ParseEhfBody(const std::vector<uint8_t>& ehf, EhfParsedBody& out)
         return false;
     }
 
-    // Fable III PC EHF uses the verified F3 little-endian header/patch-grid
-    // layout handled by HeightfieldLoader::parse_ehf_header(). Its body starts
-    // at 0x47 and contains the F3 terrain patch records; it is not the Fable II
-    // body containing embedded TEX blobs, LOD strings and paint chunks.
-    // Keep this F2 SPLAT parser from interpreting the F3 patch bytes as TEX.
-    auto le_u32 = [&](size_t off) -> uint32_t {
-        return uint32_t(ehf[off]) |
-               (uint32_t(ehf[off + 1]) << 8) |
-               (uint32_t(ehf[off + 2]) << 16) |
-               (uint32_t(ehf[off + 3]) << 24);
-    };
-    auto le_f32 = [&](size_t off) -> float {
-        const uint32_t u = le_u32(off);
-        float f = 0.0f;
-        std::memcpy(&f, &u, sizeof(f));
-        return f;
-    };
-    if (ehf.size() >= 0x47) {
-        const uint32_t f3_w = le_u32(0x23);
-        const uint32_t f3_h = le_u32(0x27);
-        const float f3_spacing = le_f32(0x2B);
-        const float f3_patch_x = le_f32(0x37);
-        const float f3_patch_y = le_f32(0x3B);
-        const float f3_cells_x = le_f32(0x3F);
-        const float f3_cells_y = le_f32(0x43);
-        if (f3_w >= 2 && f3_w <= 8192 &&
-            f3_h >= 2 && f3_h <= 8192 &&
-            std::isfinite(f3_spacing) && f3_spacing > 0.0f &&
-            (f3_w - 1) % 32 == 0 && (f3_h - 1) % 32 == 0 &&
-            std::fabs(f3_patch_x - float((f3_w - 1) / 32)) < 1e-4f &&
-            std::fabs(f3_patch_y - float((f3_h - 1) / 32)) < 1e-4f &&
-            std::fabs(f3_cells_x - 32.0f) < 1e-4f &&
-            std::fabs(f3_cells_y - 32.0f) < 1e-4f) {
-            out.error = "F3 EHF: patch-grid body has no F2 embedded TEX/SPLAT records";
-            return false;
-        }
-    }
     uint32_t body_off  = be_u32(ehf.data() + 55);
     uint32_t body_size = be_u32(ehf.data() + 59);
     if (uint64_t(body_off) + body_size > ehf.size()) {
