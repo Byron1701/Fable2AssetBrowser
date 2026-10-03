@@ -12,6 +12,11 @@ bool BakeEhfTerrainCompositeWithBnk(const std::vector<uint8_t>& ehf,
     out_picked_name.clear();
     Level::TerrainMeshTrace("BakeEhfTerrainCompositeWithBnk: entered");
     if (ehf.empty()) return false;
+    if (Level::IsF3Ehf(ehf)) {
+        // F3 EHF terrain materials are parsed by HeightfieldLoader and the
+        // existing F3 TEX stitch/decode path; this function is F2-specific.
+        return false;
+    }
 
     HeightfieldHeader hdr;
     {
