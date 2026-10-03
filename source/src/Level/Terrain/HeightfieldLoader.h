@@ -34,6 +34,18 @@ struct HeightfieldFiles {
     std::vector<uint8_t>  ghf_bytes_raw;
 };
 
+
+struct F3EhfTerrainMaterialRef {
+    std::string diffuse;
+    std::string normal;
+};
+
+struct F3EhfTerrainMaterials {
+    bool ok = false;
+    std::vector<F3EhfTerrainMaterialRef> entries;
+    std::string error;
+};
+
 struct GhfHeights {
     bool                  ok        = false;
     uint32_t              width     = 0;
@@ -65,6 +77,9 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& ghf_bytes_raw,
 
 bool DecodeF3EhfHeights(const std::vector<uint8_t>& ehf_bytes,
                         GhfHeights&                 out);
+
+bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& ehf_bytes,
+                                 F3EhfTerrainMaterials& out);
 
 
 struct TerrainMesh {
