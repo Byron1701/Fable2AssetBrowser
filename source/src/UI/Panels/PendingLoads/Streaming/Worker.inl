@@ -108,8 +108,9 @@ static void prop_worker_run(LevelPropStreamState* s)
                                 block.instances.size(), block.type,
                                 chunk_index[gi]);
                         }
-                        merge_transformed_instance_into(combined[gi], src, inst,
-                                                        selection_id);
+                        allocation_stage = "transform/append instance";
+                    merge_transformed_instance_into(combined[gi], src, inst,
+                                                    selection_id);
                     }
                 }
                 s->instances_loaded.fetch_add(1, std::memory_order_relaxed);
@@ -118,6 +119,7 @@ static void prop_worker_run(LevelPropStreamState* s)
 
             for (auto& cg : combined) {
                 if (!cg.positions.empty() && !cg.indices.empty()) {
+                    allocation_stage = "final accumulated geoms push";
                     allocation_stage = "final accumulated geoms push";
                     s->geoms.push_back(std::move(cg));
                 }
@@ -214,9 +216,14 @@ static void prop_worker_run(LevelPropStreamState* s)
         }
 
         s->phase.store(2, std::memory_order_release);
+    } catch (const std::bad_alloc&) {
+        OutputLog::error("level props: prop bake worker bad_alloc on " +
+                         current_model + " at " + allocation_stage);
+        s->phase.store(2, std::memory_order_release);
     } catch (const std::exception& e) {
         OutputLog::error("level props: prop bake worker aborted on " +
-                         current_model + " (" + e.what() + ")");
+                         current_model + " at " + allocation_stage +
+                         " (" + e.what() + ")");
         s->phase.store(2, std::memory_order_release);
     } catch (...) {
         OutputLog::error("level props: prop bake worker aborted on " +
