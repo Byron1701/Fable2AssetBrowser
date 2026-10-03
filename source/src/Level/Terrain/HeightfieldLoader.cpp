@@ -542,18 +542,54 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
 }
 
 
+bool IsF3Ehf(const std::vector<uint8_t>& bytes)
+{
+    constexpr char kMagic[] = "HeightFieldGraphicsFile";
+    constexpr size_t kMagicLen = sizeof(kMagic) - 1;
+    if (bytes.size() < 0x47 ||
+        std::memcmp(bytes.data(), kMagic, kMagicLen) != 0)
+        return false;
+
+    auto le_u32 = [&](size_t o) -> uint32_t {
+        return uint32_t(bytes[o]) |
+               (uint32_t(bytes[o + 1]) << 8) |
+               (uint32_t(bytes[o + 2]) << 16) |
+               (uint32_t(bytes[o + 3]) << 24);
+    };
+    auto le_f32 = [&](size_t o) -> float {
+        uint32_t u = le_u32(o);
+        float f = 0.0f;
+        std::memcpy(&f, &u, sizeof(f));
+        return f;
+    };
+
+    const uint32_t w = le_u32(0x23);
+    const uint32_t h = le_u32(0x27);
+    const float spacing = le_f32(0x2B);
+    const float patch_x = le_f32(0x37);
+    const float patch_y = le_f32(0x3B);
+    const float cells_x = le_f32(0x3F);
+    const float cells_y = le_f32(0x43);
+
+    return w >= 2 && w <= 8192 &&
+           h >= 2 && h <= 8192 &&
+           std::isfinite(spacing) && spacing > 0.0f &&
+           (w - 1) % 32 == 0 && (h - 1) % 32 == 0 &&
+           std::fabs(patch_x - float((w - 1) / 32)) < 1e-4f &&
+           std::fabs(patch_y - float((h - 1) / 32)) < 1e-4f &&
+           std::fabs(cells_x - 32.0f) < 1e-4f &&
+           std::fabs(cells_y - 32.0f) < 1e-4f;
+}
+
 bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
                                  F3EhfTerrainMaterials& out)
 {
     out = {};
-    constexpr char kMagic[] = "HeightFieldGraphicsFile";
-    constexpr size_t kMagicLen = sizeof(kMagic) - 1;
     constexpr size_t kHeader = 0x47;
     constexpr size_t kPatchStride = 10440;
 
-    if (bytes.size() < kHeader ||
-        std::memcmp(bytes.data(), kMagic, kMagicLen) != 0) {
-        out.error = "F3 EHF magic/header mismatch";
+    if (!IsF3Ehf(bytes)) {
+        out.error = "not a verified F3 EHF";
         return false;
     }
 
@@ -578,96 +614,118 @@ bool DecodeF3EhfTerrainMaterials(const std::vector<uint8_t>& bytes,
     const uint64_t patch_end = uint64_t(kHeader) +
         uint64_t(patch_x) * uint64_t(patch_y) * kPatchStride;
 
-    if (width < 2 || height < 2 || width > 8192 || height > 8192 ||
-        patch_x == 0 || patch_y == 0 ||
-        (width - 1) / 32 != patch_x || (height - 1) / 32 != patch_y ||
-        !std::isfinite(spacing) || spacing <= 0.0f ||
-        patch_end > bytes.size()) {
-        out.error = "F3 EHF patch-grid header is invalid";
+    if (patch_end > bytes.size()) {
+        out.error = "F3 EHF patch-grid extends past EOF";
         return false;
     }
 
-    // The texture paths are extracted from the verified post-patch F3 EHF
-    // resource area. We deliberately do not assign a guessed record layout:
-    // only actual null-terminated .tex paths are recognised.
-    std::vector<std::string> paths;
+    // The verified post-patch material-table header is:
+    //   uint32 material_count
+    //   uint32 detail_count
+    // followed by material records.  The strings and their trailing
+    // parameters are read exactly as stored; no F2 palette parser is used.
+    //
+    // Each material record observed in the Library F3 EHF files is:
+    //   null-terminated diffuse path
+    //   null-terminated normal path
+    //   12 bytes: 3 big-endian floats
+    //
+    // The first two floats are the existing F2-style tile/intensity pair;
+    // the third is the verified F3 material factor.  For the current
+    // renderer we preserve the first two and keep the third out of the
+    // F2 palette structure.
     size_t pos = size_t(patch_end);
-    while (pos < bytes.size()) {
-        size_t start = pos;
-        while (pos < bytes.size() && bytes[pos] >= 0x20 && bytes[pos] <= 0x7e)
-            ++pos;
-        if (pos < bytes.size() && bytes[pos] == 0) {
-            const size_t len = pos - start;
-            if (len >= 8 && len <= 512) {
-                std::string s(reinterpret_cast<const char*>(bytes.data() + start), len);
-                std::string lower = s;
-                std::transform(lower.begin(), lower.end(), lower.begin(),
-                               [](unsigned char ch){ return char(std::tolower(ch)); });
-                if (lower.size() >= 4 &&
-                    lower.compare(lower.size() - 4, 4, ".tex") == 0 &&
-                    lower.find('\\') != std::string::npos) {
-                    paths.push_back(std::move(s));
-                }
-            }
-            ++pos;
-        } else {
-            ++pos;
-        }
+    if (pos + 8 > bytes.size()) {
+        out.error = "F3 EHF material-table header is truncated";
+        return false;
+    }
+    const uint32_t material_count =
+        le_u32(pos + 0);
+    const uint32_t detail_count =
+        le_u32(pos + 4);
+    pos += 8;
+
+    if (material_count == 0 || material_count > 256 ||
+        detail_count > 256) {
+        out.error = "F3 EHF material-table counts are invalid";
+        return false;
     }
 
-    // Preserve first occurrence order and pair the explicitly observed
-    // diffuse/normal naming convention. No material-index interpretation is
-    // performed here; that requires decoding the surrounding binary records.
-    std::vector<std::string> unique;
-    for (const auto& p : paths) {
-        std::string key = p;
-        std::transform(key.begin(), key.end(), key.begin(),
-                       [](unsigned char ch){ return char(std::tolower(ch)); });
-        bool seen = false;
-        for (const auto& u : unique) {
-            std::string uk = u;
-            std::transform(uk.begin(), uk.end(), uk.begin(),
-                           [](unsigned char ch){ return char(std::tolower(ch)); });
-            if (uk == key) { seen = true; break; }
+    auto read_record = [&](F3EhfTerrainMaterialRef& m,
+                           std::string& err) -> bool {
+        const size_t ds = pos;
+        const size_t de = std::find(bytes.begin() + ds, bytes.end(), uint8_t(0))
+                              - bytes.begin();
+        if (de >= bytes.size() || de == ds || de - ds > 512) {
+            err = "F3 EHF material diffuse string is invalid";
+            return false;
         }
-        if (!seen) unique.push_back(p);
-    }
+        m.diffuse.assign(reinterpret_cast<const char*>(bytes.data() + ds),
+                         de - ds);
+        pos = de + 1;
 
-    for (const auto& p : unique) {
-        std::string lower = p;
-        std::transform(lower.begin(), lower.end(), lower.begin(),
-                       [](unsigned char ch){ return char(std::tolower(ch)); });
-        if (lower.find("_norm.tex") != std::string::npos ||
-            lower.find("_normal.tex") != std::string::npos ||
-            lower.find("_nrm.tex") != std::string::npos)
-            continue;
+        const size_t ns = pos;
+        const size_t ne = std::find(bytes.begin() + ns, bytes.end(), uint8_t(0))
+                              - bytes.begin();
+        if (ne >= bytes.size() || ne == ns || ne - ns > 512) {
+            err = "F3 EHF material normal string is invalid";
+            return false;
+        }
+        m.normal.assign(reinterpret_cast<const char*>(bytes.data() + ns),
+                        ne - ns);
+        pos = ne + 1;
 
+        if (pos + 13 > bytes.size()) {
+            err = "F3 EHF material parameters are truncated";
+            return false;
+        }
+
+        // These three values are stored big-endian in the verified F3
+        // material records.
+        auto be_f32 = [&](size_t o) -> float {
+            const uint32_t u =
+                (uint32_t(bytes[o]) << 24) |
+                (uint32_t(bytes[o + 1]) << 16) |
+                (uint32_t(bytes[o + 2]) << 8) |
+                uint32_t(bytes[o + 3]);
+            float f = 0.0f;
+            std::memcpy(&f, &u, sizeof(f));
+            return f;
+        };
+        m.tile_scale = be_f32(pos + 1);
+        m.intensity = be_f32(pos + 5);
+        pos += 13;
+        return true;
+    };
+
+    out.entries.reserve(material_count);
+    for (uint32_t i = 0; i < material_count; ++i) {
         F3EhfTerrainMaterialRef m;
-        m.diffuse = p;
-        const std::string suffixes[] = {"_norm.tex", "_normal.tex", "_nrm.tex"};
-        for (const auto& n : suffixes) {
-            if (lower.size() >= n.size() &&
-                lower.compare(lower.size() - n.size(), n.size(), n) == 0) {
-                break;
-            }
-            std::string candidate = p.substr(0, p.size() - 4) + n;
-            std::string cl = candidate;
-            std::transform(cl.begin(), cl.end(), cl.begin(),
-                           [](unsigned char ch){ return char(std::tolower(ch)); });
-            for (const auto& q : unique) {
-                std::string ql = q;
-                std::transform(ql.begin(), ql.end(), ql.begin(),
-                               [](unsigned char ch){ return char(std::tolower(ch)); });
-                if (ql == cl) { m.normal = q; break; }
-            }
-            if (!m.normal.empty()) break;
+        if (!read_record(m, out.error)) {
+            out.error = "material[" + std::to_string(i) + "]: " + out.error;
+            return false;
         }
         out.entries.push_back(std::move(m));
     }
 
+    // The detail table uses the same verified record representation. Attach
+    // the detail diffuse/normal pair to the corresponding base material.
+    for (uint32_t i = 0; i < detail_count; ++i) {
+        F3EhfTerrainMaterialRef d;
+        if (!read_record(d, out.error)) {
+            out.error = "detail[" + std::to_string(i) + "]: " + out.error;
+            return false;
+        }
+        if (i < out.entries.size()) {
+            out.entries[i].detail_diffuse = std::move(d.diffuse);
+            out.entries[i].detail_normal = std::move(d.normal);
+            out.entries[i].detail_tile_scale = d.tile_scale;
+            out.entries[i].detail_intensity = d.intensity;
+        }
+    }
+
     out.ok = !out.entries.empty();
-    if (!out.ok)
-        out.error = "F3 EHF contains no terrain .tex path references";
+    if (!out.ok) out.error = "F3 EHF contains no terrain material records";
     return out.ok;
 }
 
