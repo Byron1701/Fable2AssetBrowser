@@ -3,6 +3,12 @@ static bool parse_prop_model_buffer(const std::vector<unsigned char>& buf,
                                     CachedPropModel& out,
                                     std::string* reason = nullptr)
 {
+    // Log before constructing the scratch model.  CachedPropModel construction
+    // is the first operation in this function and can itself throw bad_alloc.
+    OutputLog::info(
+        "level props: MDL diagnostic entry " + model_path +
+        " bytes=" + std::to_string(buf.size()));
+
     CachedPropModel tmp;
     const char* stage = "initialisation";
 
@@ -247,6 +253,9 @@ static bool try_prop_model_candidate(const FlatAssetEntry& entry,
 {
     std::vector<unsigned char> buf;
     if (build_mdl_buffer_for_name_with_body(model_path, entry.bnk_path, buf)) {
+        OutputLog::info(
+            "level props: MDL diagnostic call " + model_path +
+            " source=candidate-body bytes=" + std::to_string(buf.size()));
         std::string parse_reason;
         if (parse_prop_model_buffer(buf, model_path, cached, &parse_reason)) {
             method = "body+header";
@@ -323,6 +332,9 @@ static bool load_cached_prop_model(const std::string& model_path,
         if (build_mdl_buffer_for_name_with_body(model_path,
                                                 preferred_body_bnk,
                                                 buf)) {
+            OutputLog::info(
+                "level props: MDL diagnostic call " + model_path +
+                " source=preferred-body bytes=" + std::to_string(buf.size()));
             std::string parse_reason;
             stage = "parse preferred-body MDL buffer";
             if (parse_prop_model_buffer(buf, model_path, cached, &parse_reason)) {
