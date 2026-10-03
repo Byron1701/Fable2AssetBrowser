@@ -89,13 +89,6 @@ bool Open(const FlatAssetEntry& entry)
        << " t32=" << n_t32
        << " other=" << n_other << ")";
     OutputLog::success(os.str());
-    OutputLog::warn("[LEVEL TRACE] prop_blocks=" +
-                    std::to_string(info.prop_blocks.size()) +
-                    " entity_contents=" +
-                    std::to_string(info.entity_contents.size()) +
-                    " entity_gameplay=" +
-                    std::to_string(info.entity_gameplay.size()));
-
     if (Creation::IsCustomLooseLevel(entry)) {
         FoliageEdit::PopulateFromParsedBlocks(info.prop_blocks);
         std::string ehf_error;
