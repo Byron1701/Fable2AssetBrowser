@@ -154,13 +154,17 @@ std::vector<std::uint8_t> F3BNKReader::inflate_zlib_stream(
 
 std::vector<std::uint8_t> F3BNKReader::decompress_index(
     const std::vector<std::uint8_t>& b,
-    bool& content_compressed) {
+    std::uint32_t& index_version,
+    bool& content_compressed,
+    std::uint32_t& decompressed_size,
+    std::vector<IndexChunk>& chunks) {
 
     if (b.size() < 9)
         throw std::runtime_error("F3 BNK: index is too small");
 
     const std::uint32_t total = read_be32(b.data());
     const std::uint32_t version = read_be32(b.data() + 4);
+    index_version = version;
     content_compressed = b[8] != 0;
 
     if (total != b.size())
@@ -171,6 +175,7 @@ std::vector<std::uint8_t> F3BNKReader::decompress_index(
     std::size_t pos = 9;
     std::vector<std::uint8_t> compressed;
     std::size_t expected_total = 0;
+    chunks.clear();
 
     while (pos < b.size()) {
         if (b.size() - pos < 8)
@@ -186,6 +191,11 @@ std::vector<std::uint8_t> F3BNKReader::decompress_index(
         if (compressed_size > b.size() - pos)
             throw std::runtime_error("F3 BNK: index chunk extends beyond file");
 
+        IndexChunk chunk;
+        chunk.compressed_size = compressed_size;
+        chunk.decompressed_size = decompressed_size;
+        chunk.file_offset = pos;
+        chunks.push_back(chunk);
         compressed.insert(compressed.end(), b.begin() + static_cast<std::ptrdiff_t>(pos),
                           b.begin() + static_cast<std::ptrdiff_t>(pos + compressed_size));
         expected_total += decompressed_size;
@@ -195,12 +205,18 @@ std::vector<std::uint8_t> F3BNKReader::decompress_index(
     if (compressed.empty())
         throw std::runtime_error("F3 BNK: no compressed index chunks");
 
+    if (expected_total > std::numeric_limits<std::uint32_t>::max())
+        throw std::runtime_error("F3 BNK: decompressed index is too large");
+    decompressed_size = static_cast<std::uint32_t>(expected_total);
     return inflate_zlib_stream(compressed.data(), compressed.size(), expected_total);
 }
 
 void F3BNKReader::parse_index() {
     bool content_compressed = false;
-    const auto raw = decompress_index(_index, content_compressed);
+    _index_chunks.clear();
+    const auto raw = decompress_index(
+        _index, _index_version, content_compressed,
+        _decompressed_index_size, _index_chunks);
     _content_compressed = content_compressed;
 
     if (raw.size() < 8)
