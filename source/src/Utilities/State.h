@@ -72,6 +72,15 @@ struct FlatAssetEntry {
     bool from_nested;
 };
 
+struct GdbViewerField {
+    uint32_t column_hash = 0;
+    uint16_t data_id = 0;
+    uint16_t data_type = 0;
+    uint32_t raw_value = 0;
+    std::string column_name;
+    std::string resolved_value;
+};
+
 struct GdbViewerRow {
     std::string name;
     std::string hash_name;
@@ -99,6 +108,7 @@ struct GdbViewerRow {
     bool has_rotation = false;
     bool indexed_record = false;
     bool transform_from_indexed_record = false;
+    std::vector<GdbViewerField> f3_fields;
 };
 
 struct State {
