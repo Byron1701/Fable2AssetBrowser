@@ -44,6 +44,33 @@ bool open_gdb_viewer_for_bnk_entry(const std::string& bnk_path,
             row.record_index = rec.index;
             row.hash = rec.hash;
             row.indexed_record = true;
+            if (rec.row_type) {
+                row.f3_fields.reserve(rec.row_type->fields.size());
+                for (size_t fi = 0; fi < rec.row_type->fields.size(); ++fi) {
+                    const F3Gdb::Field& field = rec.row_type->fields[fi];
+                    GdbViewerField vf;
+                    vf.column_hash = field.column_hash;
+                    vf.data_id = field.data_id;
+                    vf.data_type = field.data_type;
+                    if (fi < rec.values.size()) vf.raw_value = rec.values[fi];
+                    if (const F3Gdb::StringEntry* column = f3_file.string_by_hash(field.column_hash)) {
+                        vf.column_name = column->text;
+                    }
+                    const uint32_t raw = vf.raw_value;
+                    if (field.data_type == static_cast<uint16_t>(F3Gdb::DataType::StringHash) ||
+                        field.data_type == static_cast<uint16_t>(F3Gdb::DataType::ObjectHash) ||
+                        field.data_type == static_cast<uint16_t>(F3Gdb::DataType::ObjectLink)) {
+                        if (const F3Gdb::StringEntry* resolved = f3_file.string_by_hash(raw)) {
+                            vf.resolved_value = resolved->text;
+                        } else if (const F3Gdb::Record* target = f3_file.record_by_hash(raw)) {
+                            if (const F3Gdb::StringEntry* target_name = f3_file.name_for_record(target->hash)) {
+                                vf.resolved_value = target_name->text;
+                            }
+                        }
+                    }
+                    row.f3_fields.push_back(std::move(vf));
+                }
+            }
             const F3Gdb::StringEntry* name = f3_file.name_for_record(rec.hash);
             if (name) {
                 row.name = name->text;
