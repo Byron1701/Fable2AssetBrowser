@@ -324,48 +324,11 @@ std::vector<std::uint8_t> F3BNKReader::extract_entry(const FileEntry& e) const {
     if (total_expected != e.uncompressed_size)
         throw std::runtime_error("F3 BNK: chunk sizes do not sum to uncompressed size");
 
-    const std::vector<std::uint8_t>& compressed = content;
-
-    std::vector<std::uint8_t> out;
-    out.reserve(e.uncompressed_size);
-
-    std::size_t comp_pos = 0;
-    for (std::size_t i = 0; i < e.decompressed_chunk_sizes.size(); ++i) {
-        const std::size_t comp_size =
-            (i + 1 < e.decompressed_chunk_sizes.size())
-                ? std::min(kContentChunkSize, compressed.size() - comp_pos)
-                : compressed.size() - comp_pos;
-
-        if (comp_pos >= compressed.size() || comp_size == 0)
-            throw std::runtime_error("F3 BNK: invalid compressed chunk bounds");
-
-        z_stream z{};
-        if (inflateInit(&z) != Z_OK)
-            throw std::runtime_error("F3 BNK: inflateInit failed");
-
-        z.next_in = const_cast<Bytef*>(
-            reinterpret_cast<const Bytef*>(compressed.data() + comp_pos));
-        z.avail_in = static_cast<uInt>(std::min<std::size_t>(
-            comp_size, std::numeric_limits<uInt>::max()));
-
-        std::vector<std::uint8_t> chunk(e.decompressed_chunk_sizes[i]);
-        z.next_out = chunk.data();
-        z.avail_out = static_cast<uInt>(chunk.size());
-
-        const int ret = inflate(&z, Z_SYNC_FLUSH);
-        const std::size_t produced = chunk.size() - z.avail_out;
-        inflateEnd(&z);
-
-        if (ret != Z_OK && ret != Z_STREAM_END && ret != Z_BUF_ERROR)
-            throw std::runtime_error("F3 BNK: content decompression failed for " + e.name);
-        if (produced != chunk.size())
-            throw std::runtime_error("F3 BNK: content chunk size mismatch for " + e.name);
-
-        out.insert(out.end(), chunk.begin(), chunk.end());
-        comp_pos += comp_size;
-    }
-
-    return out;
+    // F3 BNK compressed entries contain one continuous zlib stream. The
+    // chunk-size table describes decompressed output boundaries; it does not
+    // describe compressed byte ranges. Decompress the complete stored stream
+    // in one pass, then verify its total output size.
+    return inflate_zlib_stream(content.data(), content.size(), e.uncompressed_size);
 }
 
 std::vector<std::uint8_t> F3BNKReader::extract_index_bytes(int index) const {
