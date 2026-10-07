@@ -386,6 +386,51 @@ void draw_gdb_in_panel() {
                        hash_detail_value(r.retarget_skeleton_file_hash,
                                          r.retarget_skeleton_file_name));
             }
+            if (!r.f3_fields.empty()) {
+                const bool fields_open = ImGui::TreeNodeEx(
+                    "##gdb_f3_fields", ImGuiTreeNodeFlags_SpanAvailWidth,
+                    "Fields | %zu", r.f3_fields.size());
+                if (fields_open) {
+                    auto data_type_name = [](uint16_t type) -> const char* {
+                        switch (type) {
+                            case 0x0000: return "Bool";
+                            case 0x0100: return "UInt32";
+                            case 0x0200: return "GroupIndex";
+                            case 0x0300: return "Float";
+                            case 0x0400: return "StringHash";
+                            case 0x0500: return "Enum";
+                            case 0x0600: return "ObjectHash";
+                            case 0x0700: return "ObjectLink";
+                            default: return "Unknown";
+                        }
+                    };
+                    for (const GdbViewerField& field : r.f3_fields) {
+                        std::string label = field.column_name.empty()
+                            ? hex32(field.column_hash)
+                            : field.column_name;
+                        std::string value = hex32(field.raw_value);
+                        if (field.data_type == 0x0300) {
+                            float f = 0.0f;
+                            std::memcpy(&f, &field.raw_value, sizeof(f));
+                            char buf[64];
+                            std::snprintf(buf, sizeof(buf), "%.6g", f);
+                            value = buf;
+                        } else if (field.data_type == 0x0000) {
+                            value = field.raw_value ? "true" : "false";
+                        } else {
+                            value += "  " + std::to_string(field.raw_value);
+                        }
+                        if (!field.resolved_value.empty()) value += "  " + field.resolved_value;
+                        std::string meta = label + " | " + data_type_name(field.data_type) + " | " + value;
+                        ImGui::TreeNodeEx(meta.c_str(),
+                                          ImGuiTreeNodeFlags_Leaf |
+                                          ImGuiTreeNodeFlags_NoTreePushOnOpen |
+                                          ImGuiTreeNodeFlags_Bullet,
+                                          "%s", meta.c_str());
+                    }
+                    ImGui::TreePop();
+                }
+            }
             if (r.model_path_hashes.size() > 1) {
                 const bool models_open = ImGui::TreeNodeEx(
                     "##gdb_model_hashes",
