@@ -20,6 +20,56 @@ bool open_gdb_viewer_for_bnk_entry(const std::string& bnk_path,
         return false;
     }
 
+    // Fable III PC GDBs use the separate little-endian format.  Do not
+    // send them through the legacy Fable II GdbView (which expects GDB\\0
+    // and big-endian fields); that path otherwise produces an apparently
+    // valid viewer with zero rows.
+    const bool is_f3_gdb = gdb_bytes.size() >= 4 &&
+                           gdb_bytes[0] == 0 && gdb_bytes[1] == 0 &&
+                           gdb_bytes[2] == 0 && gdb_bytes[3] == 0;
+    if (is_f3_gdb) {
+        F3Gdb::File f3_file;
+        std::string f3_error;
+        if (!f3_file.Parse(gdb_bytes, f3_error)) {
+            OutputLog::error("F3 GDB viewer: failed to parse " + file_name +
+                             " (" + (f3_error.empty() ? "invalid GDB" : f3_error) + ")");
+            return false;
+        }
+
+        S.gdb_view_rows.clear();
+        S.gdb_view_rows.reserve(f3_file.records().size());
+        size_t named = 0;
+        for (const F3Gdb::Record& rec : f3_file.records()) {
+            GdbViewerRow row;
+            row.record_index = rec.index;
+            row.hash = rec.hash;
+            row.indexed_record = true;
+            const F3Gdb::StringEntry* name = f3_file.name_for_record(rec.hash);
+            if (name) {
+                row.name = name->text;
+                row.hash_name = name->text;
+                ++named;
+            }
+            S.gdb_view_rows.push_back(std::move(row));
+        }
+
+        std::ostringstream title;
+        title << std::filesystem::path(file_name).filename().string()
+              << "  rows=" << S.gdb_view_rows.size()
+              << "  row-names=" << named
+              << "  F3 records=" << f3_file.header().record_count
+              << "  row-types=" << f3_file.row_types().size()
+              << "  strings=" << f3_file.strings().size();
+        S.gdb_view_title = title.str();
+        S.gdb_view_filter.clear();
+        S.show_gdb_render = true;
+        S.show_lua_render = false;
+
+        OutputLog::success("F3 GDB viewer opened: " + file_name + " (" +
+                           std::to_string(S.gdb_view_rows.size()) + " rows)");
+        return true;
+    }
+
     std::vector<uint8_t> save_bytes;
     std::vector<std::pair<uint32_t, std::string>> save_hash_to_name;
     if (find_save_sibling_bytes(bnk_path, file_name, save_bytes)) {
