@@ -154,13 +154,17 @@ std::vector<std::uint8_t> F3BNKReader::inflate_zlib_stream(
 
 std::vector<std::uint8_t> F3BNKReader::decompress_index(
     const std::vector<std::uint8_t>& b,
-    bool& content_compressed) {
+    std::uint32_t& index_version,
+    bool& content_compressed,
+    std::uint32_t& decompressed_size,
+    std::vector<IndexChunk>& chunks) {
 
     if (b.size() < 9)
         throw std::runtime_error("F3 BNK: index is too small");
 
     const std::uint32_t total = read_be32(b.data());
     const std::uint32_t version = read_be32(b.data() + 4);
+    index_version = version;
     content_compressed = b[8] != 0;
 
     if (total != b.size())
@@ -171,6 +175,7 @@ std::vector<std::uint8_t> F3BNKReader::decompress_index(
     std::size_t pos = 9;
     std::vector<std::uint8_t> compressed;
     std::size_t expected_total = 0;
+    chunks.clear();
 
     while (pos < b.size()) {
         if (b.size() - pos < 8)
@@ -186,6 +191,11 @@ std::vector<std::uint8_t> F3BNKReader::decompress_index(
         if (compressed_size > b.size() - pos)
             throw std::runtime_error("F3 BNK: index chunk extends beyond file");
 
+        IndexChunk chunk;
+        chunk.compressed_size = compressed_size;
+        chunk.decompressed_size = decompressed_size;
+        chunk.file_offset = pos;
+        chunks.push_back(chunk);
         compressed.insert(compressed.end(), b.begin() + static_cast<std::ptrdiff_t>(pos),
                           b.begin() + static_cast<std::ptrdiff_t>(pos + compressed_size));
         expected_total += decompressed_size;
@@ -195,12 +205,18 @@ std::vector<std::uint8_t> F3BNKReader::decompress_index(
     if (compressed.empty())
         throw std::runtime_error("F3 BNK: no compressed index chunks");
 
+    if (expected_total > std::numeric_limits<std::uint32_t>::max())
+        throw std::runtime_error("F3 BNK: decompressed index is too large");
+    decompressed_size = static_cast<std::uint32_t>(expected_total);
     return inflate_zlib_stream(compressed.data(), compressed.size(), expected_total);
 }
 
 void F3BNKReader::parse_index() {
     bool content_compressed = false;
-    const auto raw = decompress_index(_index, content_compressed);
+    _index_chunks.clear();
+    const auto raw = decompress_index(
+        _index, _index_version, content_compressed,
+        _decompressed_index_size, _index_chunks);
     _content_compressed = content_compressed;
 
     if (raw.size() < 8)
@@ -272,8 +288,17 @@ void F3BNKReader::parse_index() {
             throw std::runtime_error("F3 BNK: truncated file-name record");
 
         p.e.name.assign(reinterpret_cast<const char*>(raw.data() + pos), name_bytes);
-        pos += static_cast<std::size_t>(length_with_nul);
-        pos += 28;
+        pos += name_bytes;
+
+        if (raw.size() - pos < 29)
+            throw std::runtime_error("F3 BNK: truncated filename metadata");
+        for (int i = 0; i < 28; ++i) {
+            if (raw[pos++] != 0)
+                throw std::runtime_error("F3 BNK: filename terminator/metadata is not zero");
+        }
+        p.e.end_of_path_marker = raw[pos++];
+        if (p.e.end_of_path_marker == 0)
+            throw std::runtime_error("F3 BNK: filename end marker is zero");
 
         if (fnv1a_path(p.e.name) != p.e.name_hash)
             throw std::runtime_error("F3 BNK: filename hash mismatch for " + p.e.name);
@@ -283,6 +308,38 @@ void F3BNKReader::parse_index() {
 
     if (pos != raw.size())
         throw std::runtime_error("F3 BNK: unexpected bytes at end of decompressed index");
+
+    validate_entries();
+}
+
+void F3BNKReader::validate_entries() const {
+    for (std::size_t i = 0; i < _files.size(); ++i) {
+        const auto& e = _files[i];
+        if ((e.offset & 0xFu) != 0)
+            throw std::runtime_error("F3 BNK: entry offset is not 16-byte aligned: " + e.name);
+
+        const std::uint64_t stored_end =
+            static_cast<std::uint64_t>(e.offset) + e.stored_size();
+        if (stored_end > _content_size)
+            throw std::runtime_error("F3 BNK: entry exceeds .dat: " + e.name);
+
+        if (i > 0 && e.offset < _files[i - 1].offset)
+            throw std::runtime_error("F3 BNK: entries are not offset ordered");
+
+        if (e.compressed) {
+            if (e.decompressed_chunk_sizes.empty())
+                throw std::runtime_error("F3 BNK: compressed entry has no chunks: " + e.name);
+            std::uint64_t total = 0;
+            for (const auto n : e.decompressed_chunk_sizes)
+                total += n;
+            if (total != e.uncompressed_size)
+                throw std::runtime_error("F3 BNK: chunk sizes do not match uncompressed size: " + e.name);
+            if (e.compressed_size == 0)
+                throw std::runtime_error("F3 BNK: compressed entry has zero stored size: " + e.name);
+        } else if (!e.decompressed_chunk_sizes.empty() || e.compressed_size != 0) {
+            throw std::runtime_error("F3 BNK: uncompressed entry contains compression metadata: " + e.name);
+        }
+    }
 }
 
 std::vector<std::uint8_t> F3BNKReader::extract_entry(const FileEntry& e) const {
@@ -324,11 +381,48 @@ std::vector<std::uint8_t> F3BNKReader::extract_entry(const FileEntry& e) const {
     if (total_expected != e.uncompressed_size)
         throw std::runtime_error("F3 BNK: chunk sizes do not sum to uncompressed size");
 
-    // F3 BNK compressed entries contain one continuous zlib stream. The
-    // chunk-size table describes decompressed output boundaries; it does not
-    // describe compressed byte ranges. Decompress the complete stored stream
-    // in one pass, then verify its total output size.
-    return inflate_zlib_stream(content.data(), content.size(), e.uncompressed_size);
+    const std::vector<std::uint8_t>& compressed = content;
+
+    std::vector<std::uint8_t> out;
+    out.reserve(e.uncompressed_size);
+
+    std::size_t comp_pos = 0;
+    for (std::size_t i = 0; i < e.decompressed_chunk_sizes.size(); ++i) {
+        const std::size_t comp_size =
+            (i + 1 < e.decompressed_chunk_sizes.size())
+                ? std::min(kContentChunkSize, compressed.size() - comp_pos)
+                : compressed.size() - comp_pos;
+
+        if (comp_pos >= compressed.size() || comp_size == 0)
+            throw std::runtime_error("F3 BNK: invalid compressed chunk bounds");
+
+        z_stream z{};
+        if (inflateInit(&z) != Z_OK)
+            throw std::runtime_error("F3 BNK: inflateInit failed");
+
+        z.next_in = const_cast<Bytef*>(
+            reinterpret_cast<const Bytef*>(compressed.data() + comp_pos));
+        z.avail_in = static_cast<uInt>(std::min<std::size_t>(
+            comp_size, std::numeric_limits<uInt>::max()));
+
+        std::vector<std::uint8_t> chunk(e.decompressed_chunk_sizes[i]);
+        z.next_out = chunk.data();
+        z.avail_out = static_cast<uInt>(chunk.size());
+
+        const int ret = inflate(&z, Z_SYNC_FLUSH);
+        const std::size_t produced = chunk.size() - z.avail_out;
+        inflateEnd(&z);
+
+        if (ret != Z_OK && ret != Z_STREAM_END && ret != Z_BUF_ERROR)
+            throw std::runtime_error("F3 BNK: content decompression failed for " + e.name);
+        if (produced != chunk.size())
+            throw std::runtime_error("F3 BNK: content chunk size mismatch for " + e.name);
+
+        out.insert(out.end(), chunk.begin(), chunk.end());
+        comp_pos += comp_size;
+    }
+
+    return out;
 }
 
 std::vector<std::uint8_t> F3BNKReader::extract_index_bytes(int index) const {
