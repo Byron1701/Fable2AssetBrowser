@@ -288,8 +288,19 @@ void F3BNKReader::parse_index() {
             throw std::runtime_error("F3 BNK: truncated file-name record");
 
         p.e.name.assign(reinterpret_cast<const char*>(raw.data() + pos), name_bytes);
-        pos += static_cast<std::size_t>(length_with_nul);
-        pos += 28;
+        pos += name_bytes;
+
+        if (raw.size() - pos < 30)
+            throw std::runtime_error("F3 BNK: truncated filename metadata");
+        if (raw[pos++] != 0)
+            throw std::runtime_error("F3 BNK: filename is not NUL terminated");
+        for (int i = 0; i < 28; ++i) {
+            if (raw[pos++] != 0)
+                throw std::runtime_error("F3 BNK: non-zero filename metadata byte");
+        }
+        p.e.end_of_path_marker = raw[pos++];
+        if (p.e.end_of_path_marker == 0)
+            throw std::runtime_error("F3 BNK: filename end marker is zero");
 
         if (fnv1a_path(p.e.name) != p.e.name_hash)
             throw std::runtime_error("F3 BNK: filename hash mismatch for " + p.e.name);
@@ -299,6 +310,38 @@ void F3BNKReader::parse_index() {
 
     if (pos != raw.size())
         throw std::runtime_error("F3 BNK: unexpected bytes at end of decompressed index");
+
+    validate_entries();
+}
+
+void F3BNKReader::validate_entries() const {
+    for (std::size_t i = 0; i < _files.size(); ++i) {
+        const auto& e = _files[i];
+        if ((e.offset & 0xFu) != 0)
+            throw std::runtime_error("F3 BNK: entry offset is not 16-byte aligned: " + e.name);
+
+        const std::uint64_t stored_end =
+            static_cast<std::uint64_t>(e.offset) + e.stored_size();
+        if (stored_end > _content_size)
+            throw std::runtime_error("F3 BNK: entry exceeds .dat: " + e.name);
+
+        if (i > 0 && e.offset < _files[i - 1].offset)
+            throw std::runtime_error("F3 BNK: entries are not offset ordered");
+
+        if (e.compressed) {
+            if (e.decompressed_chunk_sizes.empty())
+                throw std::runtime_error("F3 BNK: compressed entry has no chunks: " + e.name);
+            std::uint64_t total = 0;
+            for (const auto n : e.decompressed_chunk_sizes)
+                total += n;
+            if (total != e.uncompressed_size)
+                throw std::runtime_error("F3 BNK: chunk sizes do not match uncompressed size: " + e.name);
+            if (e.compressed_size == 0)
+                throw std::runtime_error("F3 BNK: compressed entry has zero stored size: " + e.name);
+        } else if (!e.decompressed_chunk_sizes.empty() || e.compressed_size != 0) {
+            throw std::runtime_error("F3 BNK: uncompressed entry contains compression metadata: " + e.name);
+        }
+    }
 }
 
 std::vector<std::uint8_t> F3BNKReader::extract_entry(const FileEntry& e) const {
