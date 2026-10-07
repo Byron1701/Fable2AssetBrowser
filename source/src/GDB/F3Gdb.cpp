@@ -35,18 +35,29 @@ bool File::Parse(const std::vector<uint8_t>&b,std::string&e){
   if(row_types_.size-o<4){e="F3 GDB: truncated row-type header";return false;}
   RowType r;r.offset=(uint32_t)o;r.components=b[rt+o];r.columns=b[rt+o+1];r.count2=u16(b.data()+rt+o+2);uint32_t n=r.total_columns();size_t sz=4+size_t(n)*8;if(sz>row_types_.size-o){e="F3 GDB: row-type exceeds section";return false;}
   r.fields.reserve(n);size_t hb=o+4,mb=hb+size_t(n)*4;
-  for(uint32_t i=0;i<n;++i){Field f;f.index=i;f.column_hash=u32(b.data()+rt+hb+size_t(i)*4);f.data_id=u16(b.data()+rt+mb+size_t(i)*4);f.data_type=u16(b.data()+rt+mb+size_t(i)*4+2);if(!known(f.data_type)){std::ostringstream s;s<<"F3 GDB: unknown datatype 0x"<<std::hex<<std::uppercase<<f.data_type;e=s.str();return false;}r.fields.push_back(f);}
+  for(uint32_t i=0;i<n;++i){Field f;f.index=i;f.column_hash=u32(b.data()+rt+hb+size_t(i)*4);f.data_id=u16(b.data()+rt+mb+size_t(i)*4);f.data_type=u16(b.data()+rt+mb+size_t(i)*4+2);if(!known(f.data_type)){
+   // Unknown field types are retained as raw 32-bit values. Keshire's
+   // reference reader does the same; rejecting the whole database here
+   // would make a future/variant F3 GDB unusable.
+  }
+  r.fields.push_back(f);}
   row_type_by_offset_[r.offset]=row_type_list_.size();row_type_list_.push_back(std::move(r));o+=sz;
  }
  size_t cur=rd;records_.reserve(header_.record_count);
  for(uint32_t i=0;i<header_.record_count;++i){if(cur+4>record_data_.end()){e="F3 GDB: truncated record";return false;}uint32_t rel=u32(b.data()+cur);auto it=row_type_by_offset_.find(rel);if(it==row_type_by_offset_.end()){e="F3 GDB: record references unknown row type";return false;}const RowType&rtx=row_type_list_[it->second];size_t sz=4+rtx.fields.size()*4;if(sz>record_data_.end()-cur){e="F3 GDB: record exceeds record-data section";return false;}Record r;r.index=i;r.row_type_offset=rel;r.row_type=&rtx;r.values.reserve(rtx.fields.size());for(size_t f=0;f<rtx.fields.size();++f)r.values.push_back(u32(b.data()+cur+4+f*4));records_.push_back(std::move(r));cur+=sz;}
  if(cur!=record_data_.end()){e="F3 GDB: record-data does not tile section";return false;}
  for(uint32_t i=0;i<header_.record_count;++i){records_[i].hash=u32(b.data()+rh+size_t(i)*4);records_[i].partition=u16(b.data()+pa+size_t(i)*2);if(!record_by_hash_.emplace(records_[i].hash,i).second){e="F3 GDB: duplicate record hash";return false;}}
- for(uint32_t i=0;i<header_.unique_record_count;++i){size_t o=map+size_t(i)*8;record_to_fnv_[u32(b.data()+o)]=u32(b.data()+o+4);}
+ for(uint32_t i=0;i<header_.unique_record_count;++i){size_t o=map+size_t(i)*8;const uint32_t fnv = u32(b.data()+o);
+  const uint32_t record_hash = u32(b.data()+o+4);
+  // Keshire's GDBFileImport reads each pair as (FNV, record hash) and
+  // stores RecordToFNV[record_hash] = fnv.
+  if(record_hash != 0) record_to_fnv_[record_hash] = fnv;}
  uint32_t ver=u32(b.data()+sh),ds=u32(b.data()+sh+4),sc=u32(b.data()+sh+8);if(ver!=0x10000){e="F3 GDB: unsupported string-table version";return false;}
  size_t sd=sh+12,so=sd+size_t(ds);if(!range(sd,ds,b.size())||!range(so,size_t(sc)*4,b.size())){e="F3 GDB: string table exceeds file size";return false;}string_data_={sd,ds};string_offsets_={so,size_t(sc)*4};strings_.reserve(sc);
  std::unordered_map<uint32_t,bool> offs;offs.reserve(size_t(sc)*2);
- for(uint32_t i=0;i<sc;++i){uint32_t o=u32(b.data()+so+size_t(i)*4);if(o>=ds||!offs.emplace(o,true).second){e="F3 GDB: invalid or duplicate string offset";return false;}size_t a=sd+o;if(a+4>string_data_.end()){e="F3 GDB: truncated string entry";return false;}size_t z=a+4;while(z<string_data_.end()&&b[z])++z;if(z>=string_data_.end()){e="F3 GDB: unterminated string entry";return false;}StringEntry x;x.hash=u32(b.data()+a);x.offset=o;x.text.assign((const char*)b.data()+a+4,z-a-4);strings_.push_back(std::move(x));string_by_hash_.emplace(strings_.back().hash,strings_.size()-1);}
+ for(uint32_t i=0;i<sc;++i){uint32_t o=u32(b.data()+so+size_t(i)*4);if(o>=ds||!offs.emplace(o,true).second){e="F3 GDB: invalid or duplicate string offset";return false;}size_t a=sd+o;if(a+4>string_data_.end()){e="F3 GDB: truncated string entry";return false;}size_t z=a+4;while(z<string_data_.end()&&b[z])++z;if(z>=string_data_.end()){e="F3 GDB: unterminated string entry";return false;}StringEntry x;x.hash=u32(b.data()+a);x.offset=o;x.text.assign((const char*)b.data()+a+4,z-a-4);strings_.push_back(std::move(x));if(string_by_hash_.find(strings_.back().hash)==string_by_hash_.end())
+   string_by_hash_.emplace(strings_.back().hash,strings_.size()-1);
+  }
  valid_=true;return true;
 }
 const Record* File::record_by_hash(uint32_t h)const{auto i=record_by_hash_.find(h);return i==record_by_hash_.end()?nullptr:&records_[i->second];}
