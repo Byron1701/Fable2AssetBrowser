@@ -7,12 +7,6 @@
 
 class F3BNKReader {
 public:
-    struct IndexChunk {
-        std::uint32_t compressed_size = 0;
-        std::uint32_t decompressed_size = 0;
-        std::size_t file_offset = 0;
-    };
-
     struct FileEntry {
         std::string name;
         std::uint32_t name_hash = 0;
@@ -20,13 +14,9 @@ public:
         std::uint32_t compressed_size = 0;
         std::uint32_t uncompressed_size = 0;
         std::vector<std::uint32_t> decompressed_chunk_sizes;
-        std::uint8_t end_of_path_marker = 0;
         bool compressed = false;
 
         std::uint32_t size() const { return uncompressed_size; }
-        std::uint32_t stored_size() const {
-            return compressed ? compressed_size : uncompressed_size;
-        }
     };
 
     explicit F3BNKReader(const std::string& bnk_path);
@@ -34,14 +24,6 @@ public:
                 const std::vector<std::uint8_t>& content_bytes);
 
     const std::vector<FileEntry>& list_files() const { return _files; }
-    const std::vector<IndexChunk>& index_chunks() const { return _index_chunks; }
-
-    std::uint32_t index_version() const { return _index_version; }
-    bool content_is_compressed() const { return _content_compressed; }
-    std::uint32_t decompressed_index_size() const {
-        return _decompressed_index_size;
-    }
-    std::uint32_t declared_index_size() const { return _declared_index_size; }
 
     std::vector<std::uint8_t> extract_index_bytes(int index) const;
     std::vector<std::uint8_t> extract_file_bytes(const std::string& name) const;
@@ -58,15 +40,10 @@ private:
     std::filesystem::path _content_path;
     std::uint64_t _content_size = 0;
     std::vector<FileEntry> _files;
-    std::vector<IndexChunk> _index_chunks;
-    std::uint32_t _declared_index_size = 0;
-    std::uint32_t _index_version = 0;
-    std::uint32_t _decompressed_index_size = 0;
     bool _content_compressed = false;
 
     void parse();
     void parse_index();
-    void validate_entries() const;
     std::vector<std::uint8_t> extract_entry(const FileEntry& e) const;
 
     static std::uint32_t read_be32(const std::uint8_t* p);
@@ -80,8 +57,5 @@ private:
 
     static std::vector<std::uint8_t> decompress_index(
         const std::vector<std::uint8_t>& index_bytes,
-        std::uint32_t& index_version,
-        bool& content_compressed,
-        std::uint32_t& decompressed_size,
-        std::vector<IndexChunk>& chunks);
+        bool& content_compressed);
 };
