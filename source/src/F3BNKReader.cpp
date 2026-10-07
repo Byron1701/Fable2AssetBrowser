@@ -290,13 +290,11 @@ void F3BNKReader::parse_index() {
         p.e.name.assign(reinterpret_cast<const char*>(raw.data() + pos), name_bytes);
         pos += name_bytes;
 
-        if (raw.size() - pos < 30)
+        if (raw.size() - pos < 29)
             throw std::runtime_error("F3 BNK: truncated filename metadata");
-        if (raw[pos++] != 0)
-            throw std::runtime_error("F3 BNK: filename is not NUL terminated");
         for (int i = 0; i < 28; ++i) {
             if (raw[pos++] != 0)
-                throw std::runtime_error("F3 BNK: non-zero filename metadata byte");
+                throw std::runtime_error("F3 BNK: filename terminator/metadata is not zero");
         }
         p.e.end_of_path_marker = raw[pos++];
         if (p.e.end_of_path_marker == 0)
