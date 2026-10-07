@@ -7,6 +7,7 @@
 #include "../../ISO/IsoMount.h"
 #include "../../BNKCore.cpp"
 #include "../../GDB/GdbParser.h"
+#include "../../GDB/F3Gdb.h"
 #include "../UI_Main.h"
 #include "../AudioPlayerWindow.h"
 #include "../OutputLog.h"
