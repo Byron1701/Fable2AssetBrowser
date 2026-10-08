@@ -4,6 +4,7 @@
 #include "../VfsConfigViewer.h"
 #include "../../Utilities/Utils.h"
 #include "../../Utilities/Files.h"
+#include "../../Level/Creation/NewLevel.h"
 #include "../../Utilities/Progress.h"
 #include "../../textures/export/TextureExport.h"
 #include "../OutputLog.h"
