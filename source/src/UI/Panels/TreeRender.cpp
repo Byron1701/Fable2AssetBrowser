@@ -212,6 +212,43 @@ void draw_tree_node(TreeNode& node) {
         std::string label = node.name;
         ImGui::TreeNodeEx(label.c_str(), flags);
 
+        // File provenance is already carried by TreeNode::bnk_source.  Keep
+        // directories visually unchanged and show only a compact source suffix
+        // on files; the tooltip below provides the complete provenance.
+        std::string loose_dir;
+        try {
+            loose_dir = Level::Creation::ResolveGameDataDir();
+        } catch (...) {
+        }
+
+        std::string source_label;
+        if (!node.bnk_source.empty()) {
+            if (!loose_dir.empty() && node.bnk_source == loose_dir) {
+                source_label = "[LOOSE]";
+            } else if (node.is_nested_source) {
+                auto parent_it = S.nested_bnk_parents.find(node.bnk_source);
+                auto virtual_it = S.nested_bnk_virtual_paths.find(node.bnk_source);
+                if (parent_it != S.nested_bnk_parents.end() &&
+                    virtual_it != S.nested_bnk_virtual_paths.end()) {
+                    source_label =
+                        "[" + std::filesystem::path(parent_it->second).filename().string() +
+                        " → " +
+                        std::filesystem::path(virtual_it->second).filename().string() + "]";
+                } else {
+                    source_label =
+                        "[" + std::filesystem::path(node.bnk_source).filename().string() + "]";
+                }
+            } else {
+                source_label =
+                    "[" + std::filesystem::path(node.bnk_source).filename().string() + "]";
+            }
+
+            if (!source_label.empty()) {
+                ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+                ImGui::TextDisabled("%s", source_label.c_str());
+            }
+        }
+
         file_context_menu(node.bnk_source, node.bnk_index,
                               node.is_nested_source, node.name);
 
@@ -357,6 +394,29 @@ void draw_tree_node(TreeNode& node) {
             ImGui::BeginTooltip();
 
             ImGui::TextUnformatted(node.name.c_str());
+            if (!node.bnk_source.empty()) {
+                ImGui::Separator();
+                if (!loose_dir.empty() && node.bnk_source == loose_dir) {
+                    ImGui::Text("Source: LOOSE");
+                    ImGui::Text("Directory: %s", node.bnk_source.c_str());
+                } else {
+                    ImGui::Text("Source: %s", node.bnk_source.c_str());
+                    if (node.is_nested_source) {
+                        auto parent_it = S.nested_bnk_parents.find(node.bnk_source);
+                        auto virtual_it = S.nested_bnk_virtual_paths.find(node.bnk_source);
+                        if (parent_it != S.nested_bnk_parents.end()) {
+                            ImGui::Text("Parent BNK: %s", parent_it->second.c_str());
+                        }
+                        if (virtual_it != S.nested_bnk_virtual_paths.end()) {
+                            ImGui::Text("Nested BNK: %s", virtual_it->second.c_str());
+                        }
+                    }
+                }
+                if (!node.full_path.empty()) {
+                    ImGui::Text("Virtual path: %s", node.full_path.c_str());
+                }
+                ImGui::Text("Entry index: %d", node.bnk_index);
+            }
             ImGui::EndTooltip();
         }
     } else {
