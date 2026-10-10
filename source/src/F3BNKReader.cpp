@@ -47,7 +47,8 @@ std::int32_t F3BNKReader::read_be_i32(const std::uint8_t* p) {
     return static_cast<std::int32_t>(read_be32(p));
 }
 
-std::uint32_t F3BNKReader::fnv1a_path(const std::string& s) {
+// The game uses FNV-1 (multiply, then XOR), not FNV-1a (XOR, then multiply).
+std::uint32_t F3BNKReader::fnv1_path(const std::string& s) {
     std::uint32_t h = 0x811c9dc5u;
     for (unsigned char c : s) {
         h = (h * 0x01000193u) ^ c;
@@ -275,7 +276,7 @@ void F3BNKReader::parse_index() {
         pos += static_cast<std::size_t>(length_with_nul);
         pos += 28;
 
-        if (fnv1a_path(p.e.name) != p.e.name_hash)
+        if (fnv1_path(p.e.name) != p.e.name_hash)
             throw std::runtime_error("F3 BNK: filename hash mismatch for " + p.e.name);
 
         _files.push_back(std::move(p.e));

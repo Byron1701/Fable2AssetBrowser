@@ -981,6 +981,16 @@ if(FABLE_BUILD_TESTS)
     )
     add_test(NAME f3_gdb_tests COMMAND f3_gdb_tests)
 
+    add_executable(f3_bnk_tests
+            tests/F3BNKTests.cpp
+            src/F3BNKReader.cpp
+    )
+    target_include_directories(f3_bnk_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    target_link_libraries(f3_bnk_tests PRIVATE ZLIB::ZLIB)
+    add_test(NAME f3_bnk_tests COMMAND f3_bnk_tests)
+
     add_executable(gdb_edit_tests
             tests/GdbEditTests.cpp
             src/GDB/GdbEdit.cpp

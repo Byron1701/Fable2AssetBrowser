@@ -48,7 +48,7 @@ private:
 
     static std::uint32_t read_be32(const std::uint8_t* p);
     static std::int32_t read_be_i32(const std::uint8_t* p);
-    static std::uint32_t fnv1a_path(const std::string& s);
+    static std::uint32_t fnv1_path(const std::string& s);
 
     static std::vector<std::uint8_t> inflate_zlib_stream(
         const std::uint8_t* data,
