@@ -4,7 +4,8 @@
         HeightfieldFiles hf;
         loader_progress_update(32, 100, "Loading heightfield files...");
         if (!LoadHeightfieldFiles(res.ehf_path, res.ghf_path,
-                                  res.hdb_path, res.genv_path, hf)) {
+                                  res.hdb_path, res.genv_path, hf,
+                                  info.version == 13)) {
             OutputLog::error("heightfield load failed: " + hf.error);
         } else if (S.cancel_requested.load()) {
             OutputLog::warn("level load cancelled during heightfield load");
@@ -103,7 +104,9 @@
                         OutputLog::info(start_mesh.str());
                     }
 #ifdef _WIN32
-                    const bool terrain_built = BuildTerrainMesh(hg, mesh);
+                    const bool terrain_built = (info.version == 13)
+                        ? BuildF3TerrainMesh(hg, mesh)
+                        : BuildTerrainMesh(hg, mesh);
 #else
                     constexpr size_t kLinuxTerrainPreviewVertices = 262144;
                     const size_t full_vertex_count =
@@ -115,8 +118,9 @@
                             hg, kLinuxTerrainPreviewVertices);
                         render_hg = &preview_hg;
                     }
-                    const bool terrain_built =
-                        BuildTerrainMesh(*render_hg, mesh);
+                    const bool terrain_built = (info.version == 13)
+                        ? BuildF3TerrainMesh(*render_hg, mesh)
+                        : BuildTerrainMesh(*render_hg, mesh);
 #endif
                     if (!terrain_built) {
                         OutputLog::error("  terrain mesh build failed");
