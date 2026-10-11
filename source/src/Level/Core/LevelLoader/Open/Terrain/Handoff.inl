@@ -33,7 +33,7 @@
                         g_pending_terrain_load =
                             !g_level_export_only_load.load();
 
-                        {
+                        if (info.version != 13) {
                             auto pal = EhfPalette::Parse(hf.ehf_bytes);
                             if (pal.ok) {
                                 std::ostringstream pos;
@@ -62,6 +62,10 @@
                             }
                         }
 
+                    }
+
+                    } else {
+                        OutputLog::info("F3 terrain: legacy EHF palette scan skipped");
                     }
                 }
             }
