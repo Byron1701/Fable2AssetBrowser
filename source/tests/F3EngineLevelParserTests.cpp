@@ -86,7 +86,9 @@ int main(int argc, char** argv) {
     assert(parsed.records[3].paths.size() == 3);
     assert(parsed.records[3].instances.size() == 1);
     assert(parsed.records[3].instances[0].hash == 0x1122334455667788ull);
+    assert(parsed.records[3].instances[0].flags[3] == 4);
     assert(parsed.records[3].instances[0].values.size() == 20);
+    assert(parsed.records[3].instances[0].raw.size() == 92);
     assert(parsed.records[4].type == 21);
     assert(parsed.records[4].instance_count == 1);
     assert(parsed.records[4].secondary_instance_count == 1);
