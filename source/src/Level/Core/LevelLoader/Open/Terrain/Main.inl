@@ -88,6 +88,20 @@
                         OutputLog::warn("level load cancelled before terrain mesh build");
                         return false;
                     }
+
+                    // Keep a separate log marker around the synchronous mesh
+                    // build. The progress label otherwise remains at 58% even
+                    // if a later terrain handoff/render step is where loading
+                    // actually stalls.
+                    {
+                        std::ostringstream start_mesh;
+                        start_mesh << "  terrain mesh build starting: "
+                                   << hg.width << "x" << hg.height
+                                   << " vertices=" << (size_t(hg.width) * hg.height)
+                                   << " heights=[" << hg.min_height
+                                   << ".." << hg.max_height << "]";
+                        OutputLog::info(start_mesh.str());
+                    }
 #ifdef _WIN32
                     const bool terrain_built = BuildTerrainMesh(hg, mesh);
 #else
@@ -108,6 +122,13 @@
                         OutputLog::error("  terrain mesh build failed");
                     } else {
                         const size_t tri_count = mesh.indices.size() / 3;
+                        {
+                            std::ostringstream finished_mesh;
+                            finished_mesh << "  terrain mesh build finished: verts="
+                                          << (mesh.positions.size() / 3)
+                                          << " tris=" << tri_count;
+                            OutputLog::info(finished_mesh.str());
+                        }
                         std::ostringstream mos;
                         mos << "  terrain mesh: verts=" << (mesh.positions.size() / 3)
                             << "  tris=" << tri_count;
