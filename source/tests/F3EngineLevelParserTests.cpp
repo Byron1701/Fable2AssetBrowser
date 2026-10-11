@@ -3,6 +3,9 @@
 #include <cassert>
 #include <cstdint>
 #include <cstring>
+#include <fstream>
+#include <iostream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -54,7 +57,7 @@ void putType21(std::vector<uint8_t>& b) {
 }
 }
 
-int main() {
+int main(int argc, char** argv) {
     using Level::F3::ParseEngineLevelV13;
 
     auto valid = header(5);
@@ -108,6 +111,29 @@ int main() {
     truncated.push_back(4);
     const auto short_file = ParseEngineLevelV13(truncated);
     assert(!short_file.ok && !short_file.error.empty());
+
+    // Optional arguments are real .engine_level files extracted from the
+    // Library Fable3.zip corpus. This lets the same test executable validate
+    // the parser against the full sample set without bundling game assets.
+    for (int i = 1; i < argc; ++i) {
+        std::ifstream file(argv[i], std::ios::binary);
+        if (!file) {
+            std::cerr << "Cannot open sample: " << argv[i] << "\\n";
+            return 1;
+        }
+        std::vector<uint8_t> bytes(
+            (std::istreambuf_iterator<char>(file)),
+            std::istreambuf_iterator<char>());
+        const auto sample = ParseEngineLevelV13(bytes);
+        if (!sample.ok || !sample.complete ||
+            sample.records.size() != sample.declared_record_count) {
+            std::cerr << "Sample failed: " << argv[i] << ": "
+                      << sample.error << "\\n";
+            return 1;
+        }
+        std::cout << "PASS " << argv[i] << ": "
+                  << sample.records.size() << " records\\n";
+    }
 
     return 0;
 }
