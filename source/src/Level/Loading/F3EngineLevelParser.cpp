@@ -179,7 +179,7 @@ EngineLevelParseResult ParseEngineLevelV13(
             }
         } else if (rec.type == 2) {
             // Version 13 stores three NUL-terminated model paths, then a
-            // big-endian instance count. The fourth apparent string in the
+            // little-endian instance count. The fourth apparent string in the
             // older F2 parser is the first byte(s) of this count.
             for (unsigned p = 0; p < 3; ++p) {
                 std::string path;
@@ -234,8 +234,8 @@ EngineLevelParseResult ParseEngineLevelV13(
             }
         } else if (rec.type == 21) {
             // Type 21 is the F3 scatter/foliage record. The bytes immediately
-            // after the model path are 10 metadata bytes, a BE count, a
-            // 68-byte fixed header, 22-byte entries, a BE second count,
+            // after the model path are 10 metadata bytes, a little-endian count, a
+            // 68-byte fixed header, 22-byte entries, a little-endian second count,
             // then 32-byte secondary entries.
             if (!r.cstr(rec.path) || !IsPlausiblePath(rec.path)) {
                 out.error = "Invalid type-21 model path at offset " +
