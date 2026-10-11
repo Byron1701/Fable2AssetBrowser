@@ -207,7 +207,7 @@ EngineLevelParseResult ParseEngineLevelV13(
                 EngineLevelInstance instance;
                 instance.offset = r.position();
                 instance.raw = r.slice(r.position(), r.position() + kInstanceSize);
-                for (unsigned flagIndex = 0; flagIndex < 3; ++flagIndex) {
+                for (unsigned flagIndex = 0; flagIndex < 4; ++flagIndex) {
                     if (!r.u8(instance.flags[flagIndex])) {
                         out.error = "Truncated type-2 instance flags.";
                         return out;
@@ -247,7 +247,7 @@ EngineLevelParseResult ParseEngineLevelV13(
                 rec.metadata_hash |= uint64_t(bytes[metadataOffset + n]) << (8 * n);
             rec.metadata_flags[0] = bytes[metadataOffset + 8];
             rec.metadata_flags[1] = bytes[metadataOffset + 9];
-            if (!r.skip(10) || !r.u32be(rec.instance_count)) {
+            if (!r.skip(10) || !r.u32le(rec.instance_count)) {
                 out.error = "Truncated type-21 primary count.";
                 return out;
             }
