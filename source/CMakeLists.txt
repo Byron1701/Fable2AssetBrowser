@@ -24,6 +24,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreadedDLL")
 set(APP_SOURCES
         src/MDL/F3MDLReader.cpp
         src/F3BNKReader.cpp
+        src/Level/Loading/F3EngineLevelParser.cpp
         src/main.cpp
         src/Utilities/GameBackup.cpp
         src/Utilities/GameBackup.h
@@ -832,6 +833,18 @@ target_compile_definitions(Fable_2_Asset_Browser PRIVATE
 
 if(FABLE_BUILD_TESTS)
     include(CTest)
+endif()
+
+if(FABLE_BUILD_TESTS)
+    add_executable(f3_engine_level_parser_tests
+            tests/F3EngineLevelParserTests.cpp
+            src/Level/Loading/F3EngineLevelParser.cpp
+    )
+    target_include_directories(f3_engine_level_parser_tests PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+    )
+    add_test(NAME f3_engine_level_parser_tests
+             COMMAND f3_engine_level_parser_tests)
 endif()
 if(FABLE_BUILD_TESTS)
     add_executable(debug_log_tests
