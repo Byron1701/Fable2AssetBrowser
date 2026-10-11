@@ -14,6 +14,7 @@ void OpenAsync(const FlatAssetEntry& entry)
     }
 
     S.cancel_requested.store(false);
+    g_pending_terrain_is_f3 = false;
 
     progress_open(100, "Loading level...");
     std::thread([entry]() {
@@ -22,6 +23,7 @@ void OpenAsync(const FlatAssetEntry& entry)
         const bool cancelled = S.cancel_requested.load();
         if (cancelled) {
             g_pending_terrain_load.store(false);
+            g_pending_terrain_is_f3 = false;
             g_pending_level_prop_blocks.clear();
             g_pending_adjacent_terrain_meshes.clear();
             g_pending_terrain_mesh = Level::TerrainMesh{};
