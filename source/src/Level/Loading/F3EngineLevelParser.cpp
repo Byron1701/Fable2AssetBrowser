@@ -91,6 +91,35 @@ private:
     size_t pos_ = 0;
 };
 
+float HalfToFloat(uint16_t half) {
+    const uint32_t sign = uint32_t(half & 0x8000u) << 16;
+    uint32_t exponent = (half >> 10) & 0x1fu;
+    uint32_t mantissa = half & 0x03ffu;
+    uint32_t bits = 0;
+    if (exponent == 0) {
+        if (mantissa == 0) {
+            bits = sign;
+        } else {
+            int shift = 0;
+            while ((mantissa & 0x0400u) == 0) {
+                mantissa <<= 1;
+                ++shift;
+            }
+            mantissa &= 0x03ffu;
+            const uint32_t exp32 = uint32_t(127 - 15 - shift + 1);
+            bits = sign | (exp32 << 23) | (mantissa << 13);
+        }
+    } else if (exponent == 0x1fu) {
+        bits = sign | 0x7f800000u | (mantissa << 13);
+    } else {
+        exponent = exponent + (127 - 15);
+        bits = sign | (exponent << 23) | (mantissa << 13);
+    }
+    float value = 0.0f;
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
 bool IsPlausiblePath(const std::string& path) {
     if (path.empty()) return true;
     if (path.size() > kMaxStringBytes) return false;
@@ -252,12 +281,25 @@ EngineLevelParseResult ParseEngineLevelV13(
                 EngineLevelInstance instance;
                 instance.offset = r.position();
                 instance.raw = r.slice(r.position(), r.position() + kPrimarySize);
-                // The primary record is preserved byte-for-byte. Its three
-                // float position and five half-float fields are decoded in a
-                // later refinement; no data is thrown away here.
-                if (!r.skip(kPrimarySize)) {
-                    out.error = "Truncated type-21 primary instance.";
-                    return out;
+                // Three little-endian float coordinates followed by four
+                // half-float quaternion components and one half-float scale.
+                instance.values.reserve(8);
+                for (unsigned f = 0; f < 3; ++f) {
+                    float value = 0.0f;
+                    if (!r.f32le(value)) {
+                        out.error = "Truncated type-21 primary position.";
+                        return out;
+                    }
+                    instance.values.push_back(value);
+                }
+                for (unsigned f = 0; f < 5; ++f) {
+                    uint8_t lo = 0, hi = 0;
+                    if (!r.u8(lo) || !r.u8(hi)) {
+                        out.error = "Truncated type-21 primary half-float fields.";
+                        return out;
+                    }
+                    instance.values.push_back(HalfToFloat(
+                        uint16_t(lo) | (uint16_t(hi) << 8)));
                 }
                 rec.instances.push_back(std::move(instance));
             }
