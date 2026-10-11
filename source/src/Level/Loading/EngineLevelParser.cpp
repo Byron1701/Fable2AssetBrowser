@@ -1,5 +1,6 @@
 #include "Level/Core/LevelLoader.h"
 #include "Level/Loading/LevelBinaryReader.h"
+#include "Level/Loading/F3EngineLevelParser.h"
 #include "UI/OutputLog.h"
 
 #include <cmath>
@@ -21,6 +22,125 @@ bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
                       EngineLevelInfo&            out)
 {
     out = {};
+
+    // Fable III's version-13 engine-level files use a little-endian header
+    // and are parsed independently. The existing big-endian v11/v12 route
+    // below is intentionally left unchanged for Fable II.
+    if (bytes.size() >= kEngineLevelMagicLen + 4 &&
+        std::memcmp(bytes.data(), kEngineLevelMagic, kEngineLevelMagicLen) == 0) {
+        const uint32_t little_version =
+            uint32_t(bytes[kEngineLevelMagicLen]) |
+            (uint32_t(bytes[kEngineLevelMagicLen + 1]) << 8) |
+            (uint32_t(bytes[kEngineLevelMagicLen + 2]) << 16) |
+            (uint32_t(bytes[kEngineLevelMagicLen + 3]) << 24);
+        if (little_version == 13) {
+            const auto parsed = Level::F3::ParseEngineLevelV13(bytes);
+            if (!parsed.ok) {
+                out.error = parsed.error;
+                return false;
+            }
+
+            out.version = parsed.version;
+            out.entry_count = parsed.declared_record_count;
+            out.entries.reserve(parsed.records.size());
+            for (const auto& record : parsed.records) {
+                EngineLevelEntry entry;
+                entry.type = record.type;
+                entry.offset = record.offset;
+                entry.size = record.size;
+                if (!record.path.empty()) {
+                    entry.str_a = record.path;
+                } else if (!record.paths.empty()) {
+                    entry.str_a = record.paths[0];
+                }
+                if (record.paths.size() > 1) {
+                    entry.str_b = record.paths[1];
+                }
+                entry.resource_key = record.resource_key;
+                entry.has_resource_key = record.has_resource_key;
+                out.entries.push_back(std::move(entry));
+
+                if (record.type == 2 && !record.paths.empty()) {
+                    PropBlock block;
+                    block.offset = record.offset;
+                    block.type = record.type;
+                    block.model_path = record.paths[0];
+                    if (record.paths.size() > 1)
+                        block.shadow_model_path = record.paths[1];
+                    if (record.paths.size() > 2)
+                        block.lod_model_path = record.paths[2];
+
+                    block.instances.reserve(record.instances.size());
+                    for (const auto& source : record.instances) {
+                        PropInstance instance;
+                        instance.hash = source.hash;
+                        for (size_t i = 0; i < 3; ++i)
+                            instance.flags[i] = source.flags[i];
+                        for (size_t i = 0;
+                             i < source.values.size() && i < 20; ++i)
+                            instance.values[i] = source.values[i];
+                        instance.record_file_offset =
+                            static_cast<uint32_t>(source.offset);
+                        instance.pos_file_offset =
+                            static_cast<uint32_t>(source.offset + 11);
+                        instance.record_size = 92;
+                        instance.lev_rec_kind = 1;
+                        block.instances.push_back(instance);
+                    }
+                    out.prop_blocks.push_back(std::move(block));
+                } else if (record.type == 21 && !record.path.empty()) {
+                    PropBlock block;
+                    block.offset = record.offset;
+                    block.type = record.type;
+                    block.model_path = record.path;
+                    block.instances.reserve(record.instances.size());
+
+                    for (const auto& source : record.instances) {
+                        // Type-21 primary entries carry position, quaternion
+                        // (half floats), and uniform scale. Convert the
+                        // quaternion to the yaw representation used by the
+                        // existing prop renderer; retain position and scale.
+                        if (source.values.size() < 8) continue;
+                        PropInstance instance;
+                        instance.record_file_offset =
+                            static_cast<uint32_t>(source.offset);
+                        instance.pos_file_offset =
+                            static_cast<uint32_t>(source.offset);
+                        instance.record_size = 22;
+                        instance.lev_rec_kind = 3;
+                        for (size_t i = 0; i < 3; ++i)
+                            instance.values[i] = source.values[i];
+
+                        const float qx = source.values[3];
+                        const float qy = source.values[4];
+                        const float qz = source.values[5];
+                        const float qw = source.values[6];
+                        const float num = 2.0f * (qw * qz + qx * qy);
+                        const float den = 1.0f - 2.0f * (qy * qy + qz * qz);
+                        const float mag = std::sqrt(num * num + den * den);
+                        if (std::isfinite(mag) && mag > 1e-6f) {
+                            instance.values[6] = num / mag;
+                            instance.values[7] = den / mag;
+                        } else {
+                            instance.values[6] = 0.0f;
+                            instance.values[7] = 1.0f;
+                        }
+                        const float scale = source.values[7] > 0.0f
+                            ? source.values[7] : 1.0f;
+                        instance.values[9] = scale;
+                        instance.values[10] = scale;
+                        instance.values[11] = scale;
+                        block.instances.push_back(instance);
+                    }
+                    if (!block.instances.empty())
+                        out.prop_blocks.push_back(std::move(block));
+                }
+            }
+            out.ok = true;
+            return true;
+        }
+    }
+
     if (bytes.size() < kEngineLevelMagicLen + 8) {
         out.error = "file too small for header";
         return false;
