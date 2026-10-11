@@ -236,15 +236,15 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
 {
     out = {};
 
-    // The F3 GHF is a 20-byte header followed by 14-byte records and an
-    // 8-byte trailer. Each record's height is a little-endian float at +8.
-    constexpr size_t kHeaderSize = 20;
+    // Confirmed from the F3 sample in the Library:
+    // 28-byte header, followed by width*height records of 14 bytes each.
+    // Header fields are little-endian; each record begins with its height.
+    constexpr size_t kHeaderSize = 28;
     constexpr size_t kRecordStride = 14;
-    constexpr size_t kHeightOffset = 8;
-    constexpr size_t kTrailerSize = 8;
+    constexpr size_t kHeightOffset = 0;
 
-    if (bytes.size() < kHeaderSize + kTrailerSize) {
-        out.error = ".ghf too small for the F3 header and trailer";
+    if (bytes.size() < kHeaderSize) {
+        out.error = ".ghf too small for the F3 28-byte header";
         return false;
     }
 
@@ -261,14 +261,11 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
         return value;
     };
 
-    // The first two header floats are the horizontal terrain origin; the
-    // third is the vertical origin. The renderer uses the first two axes as
-    // world X/Z and the per-record heights as world Y.
     out.origin_x = f32le(bytes.data() + 0x00);
     out.origin_z = f32le(bytes.data() + 0x04);
-    out.base_height = f32le(bytes.data() + 0x08);
     out.width = u32le(bytes.data() + 0x0C);
     out.height = u32le(bytes.data() + 0x10);
+    out.base_height = f32le(bytes.data() + 0x14);
     out.tile_size = 0.5f;
 
     if (!std::isfinite(out.origin_x) || !std::isfinite(out.origin_z) ||
@@ -282,14 +279,13 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
     }
 
     const size_t cells = size_t(out.width) * size_t(out.height);
-    if (cells > (std::numeric_limits<size_t>::max() -
-                 kHeaderSize - kTrailerSize) / kRecordStride) {
+    if (cells > (std::numeric_limits<size_t>::max() - kHeaderSize) /
+                    kRecordStride) {
         out.error = ".ghf F3 dimensions overflow the file-size calculation";
         return false;
     }
 
-    const size_t expected_size =
-        kHeaderSize + cells * kRecordStride + kTrailerSize;
+    const size_t expected_size = kHeaderSize + cells * kRecordStride;
     if (bytes.size() != expected_size) {
         out.error = ".ghf F3 size mismatch: expected " +
                     std::to_string(expected_size) + " bytes for " +
