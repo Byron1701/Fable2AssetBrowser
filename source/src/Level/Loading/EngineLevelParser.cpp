@@ -132,6 +132,59 @@ bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
                         instance.values[11] = scale;
                         block.instances.push_back(instance);
                     }
+
+                    // The secondary type-21 array uses eight floats per
+                    // entry: two scalar values, a position, and a direction.
+                    // Preserve the established v11/v12 interpretation of
+                    // those values, while rejecting non-finite/out-of-range
+                    // positions before they enter the render pipeline.
+                    for (const auto& source : record.secondary_instances) {
+                        if (source.values.size() < 8) continue;
+                        const float x = source.values[2];
+                        const float y = source.values[3];
+                        const float z = source.values[4];
+                        if (!std::isfinite(x) || !std::isfinite(y) ||
+                            !std::isfinite(z) ||
+                            x < -2048.0f || x > 2048.0f ||
+                            y < -2048.0f || y > 2048.0f ||
+                            z < -512.0f || z > 512.0f ||
+                            std::fabs(x) + std::fabs(y) + std::fabs(z) <= 0.5f)
+                            continue;
+
+                        PropInstance instance;
+                        instance.record_file_offset =
+                            static_cast<uint32_t>(source.offset);
+                        instance.pos_file_offset =
+                            static_cast<uint32_t>(source.offset + 8);
+                        instance.record_size = 32;
+                        instance.lev_rec_kind = 4;
+                        instance.values[0] = x;
+                        instance.values[1] = y;
+                        instance.values[2] = z;
+
+                        const float dx = source.values[6];
+                        const float dy = source.values[7];
+                        const float direction_length =
+                            std::sqrt(dx * dx + dy * dy);
+                        if (std::isfinite(direction_length) &&
+                            direction_length > 0.001f &&
+                            direction_length < 100.0f) {
+                            instance.values[6] = dy / direction_length;
+                            instance.values[7] = dx / direction_length;
+                        } else {
+                            instance.values[6] = 0.0f;
+                            instance.values[7] = 1.0f;
+                        }
+
+                        const float scale = source.values[0];
+                        const float safe_scale =
+                            std::isfinite(scale) && scale > 0.05f &&
+                            scale < 100.0f ? scale : 1.0f;
+                        instance.values[9] = safe_scale;
+                        instance.values[10] = safe_scale;
+                        instance.values[11] = safe_scale;
+                        block.instances.push_back(instance);
+                    }
                     if (!block.instances.empty())
                         out.prop_blocks.push_back(std::move(block));
                 }
