@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <climits>
 
 namespace Level {
 
@@ -40,11 +41,22 @@ bool gunzip(const std::vector<uint8_t>& in,
             std::string&                err)
 {
     out.clear();
-    if (in.size() < 18 || in[0] != 0x1F || in[1] != 0x8B) {
-        err = "not a gzip stream (magic mismatch)";
+    if (in.size() < 2 || in.size() > std::numeric_limits<uInt>::max()) {
+        err = "compressed .ghf size is invalid";
         return false;
     }
 
+    // The supplied F3 assets use gzip, but inflateInit2(15 + 32) also
+    // accepts a zlib-wrapped stream. Check either wrapper before inflating.
+    const bool gzip_header = in[0] == 0x1F && in[1] == 0x8B;
+    const bool zlib_header = (in[0] & 0x0F) == 8 &&
+        ((uint32_t(in[0]) << 8) | in[1]) % 31 == 0;
+    if (!gzip_header && !zlib_header) {
+        err = "not a gzip or zlib stream (header mismatch)";
+        return false;
+    }
+
+    constexpr size_t kMaxInflatedBytes = 512u * 1024u * 1024u;
     z_stream zs{};
     zs.next_in   = const_cast<Bytef*>(in.data());
     zs.avail_in  = static_cast<uInt>(in.size());
@@ -53,7 +65,9 @@ bool gunzip(const std::vector<uint8_t>& in,
         return false;
     }
 
-    out.resize(in.size() * 4);
+    const size_t initial_size = std::min(
+        kMaxInflatedBytes, std::max<size_t>(64u * 1024u, in.size() * 4u));
+    out.resize(initial_size);
     size_t produced = 0;
     while (true) {
         zs.next_out  = out.data() + produced;
@@ -62,7 +76,15 @@ bool gunzip(const std::vector<uint8_t>& in,
         produced = out.size() - zs.avail_out;
         if (rc == Z_STREAM_END) break;
         if (rc == Z_OK) {
-            if (zs.avail_out == 0) out.resize(out.size() * 2);
+            if (zs.avail_out == 0) {
+                if (out.size() >= kMaxInflatedBytes) {
+                    inflateEnd(&zs);
+                    out.clear();
+                    err = "inflated .ghf exceeds the 512 MiB safety limit";
+                    return false;
+                }
+                out.resize(std::min(kMaxInflatedBytes, out.size() * 2u));
+            }
             continue;
         }
         inflateEnd(&zs);
@@ -136,6 +158,55 @@ void parse_ehf_header(const std::vector<uint8_t>& bytes,
     out.body_size    = be_u32(p + 59);
     out.ok           = true;
 }
+ 
+void parse_f3_ehf_header(const std::vector<uint8_t>& bytes,
+                         HeightfieldHeader& out)
+{
+    out = {};
+    static constexpr char kMagic[] = "HeightFieldGraphicsFile";
+    static constexpr size_t kMagicLen = sizeof(kMagic) - 1;
+    constexpr size_t kHeaderLen = 63;
+    if (bytes.size() < kHeaderLen ||
+        std::memcmp(bytes.data(), kMagic, kMagicLen) != 0) {
+        return;
+    }
+
+    auto u32le = [](const uint8_t* p) -> uint32_t {
+        return uint32_t(p[0]) |
+               (uint32_t(p[1]) << 8) |
+               (uint32_t(p[2]) << 16) |
+               (uint32_t(p[3]) << 24);
+    };
+    auto f32le = [&](const uint8_t* p) -> float {
+        const uint32_t bits = u32le(p);
+        float value = 0.0f;
+        std::memcpy(&value, &bits, sizeof(value));
+        return value;
+    };
+
+    // F3 EHF v18 uses little-endian header values. Do not interpret its
+    // trailing header floats as the F2 body offset/size pair.
+    out.magic.assign(kMagic);
+    out.version = u32le(bytes.data() + kMagicLen);
+    out.prefix_float = f32le(bytes.data() + kMagicLen + 4);
+    out.f0 = f32le(bytes.data() + kMagicLen + 8);
+    out.u0 = u32le(bytes.data() + kMagicLen + 12);
+    out.u1 = u32le(bytes.data() + kMagicLen + 16);
+    out.f2 = f32le(bytes.data() + kMagicLen + 20);
+    out.f3 = f32le(bytes.data() + kMagicLen + 24);
+    out.f4 = f32le(bytes.data() + kMagicLen + 28);
+    out.f3_layout = true;
+
+    if (out.version == 0 || out.version > 64 ||
+        out.u0 < 2 || out.u1 < 2 ||
+        out.u0 > 8192 || out.u1 > 8192 ||
+        !std::isfinite(out.f2) || out.f2 <= 0.0f) {
+        out = {};
+        return;
+    }
+    out.ok = true;
+}
+
 
 }
 
@@ -152,7 +223,8 @@ bool LoadHeightfieldFiles(const std::string& ehf_path,
                           const std::string& ghf_path,
                           const std::string& ,
                           const std::string& ,
-                          HeightfieldFiles&  out)
+                          HeightfieldFiles&  out,
+                          bool f3_format)
 {
     out = {};
 
@@ -163,10 +235,18 @@ bool LoadHeightfieldFiles(const std::string& ehf_path,
             out.error = ".ehf load failed: " + err;
             return false;
         }
-        parse_ehf_header(out.ehf_bytes, out.ehf_header);
-        if (out.ehf_header.magic.empty()) {
-            out.error = ".ehf magic mismatch - not a HeightFieldGraphicsFile";
-            return false;
+        if (f3_format) {
+            parse_f3_ehf_header(out.ehf_bytes, out.ehf_header);
+            if (!out.ehf_header.ok) {
+                out.error = ".ehf F3 header invalid or unsupported";
+                return false;
+            }
+        } else {
+            parse_ehf_header(out.ehf_bytes, out.ehf_header);
+            if (out.ehf_header.magic.empty()) {
+                out.error = ".ehf magic mismatch - not a HeightFieldGraphicsFile";
+                return false;
+            }
         }
     }
 
@@ -278,7 +358,13 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
         return false;
     }
 
-    const size_t cells = size_t(out.width) * size_t(out.height);
+    const uint64_t cells64 = uint64_t(out.width) * uint64_t(out.height);
+    constexpr uint64_t kMaxF3HeightSamples = 16ull * 1024ull * 1024ull;
+    if (cells64 > kMaxF3HeightSamples) {
+        out.error = ".ghf F3 sample count exceeds the 16M safety limit";
+        return false;
+    }
+    const size_t cells = static_cast<size_t>(cells64);
     if (cells > (std::numeric_limits<size_t>::max() - kHeaderSize) /
                     kRecordStride) {
         out.error = ".ghf F3 dimensions overflow the file-size calculation";
@@ -323,6 +409,95 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
     out = {};
     if (!hg.ok || hg.width < 2 || hg.height < 2 ||
         hg.heights.size() != size_t(hg.width) * size_t(hg.height)) {
+        return false;
+    }
+
+    const uint32_t W = hg.width;
+    const uint32_t H = hg.height;
+    const float    tile = hg.tile_size > 0.f ? hg.tile_size : 0.5f;
+    const size_t   N    = size_t(W) * size_t(H);
+    const size_t   tris = size_t(W - 1) * size_t(H - 1) * 2;
+
+    out.width  = W;
+    out.height = H;
+    out.min_height = hg.min_height;
+    out.max_height = hg.max_height;
+
+    out.positions.resize(N * 3);
+    out.normals.resize  (N * 3);
+    out.uvs.resize      (N * 2);
+    out.indices.resize  (tris * 3);
+
+    constexpr float kUvRepeatsPerWu = 0.125f;
+    for (uint32_t y = 0; y < H; ++y) {
+        for (uint32_t x = 0; x < W; ++x) {
+            const size_t i = size_t(y) * W + x;
+            out.positions[i * 3 + 0] = hg.origin_x + float(x) * tile;
+            out.positions[i * 3 + 1] = hg.heights[i];
+            out.positions[i * 3 + 2] = hg.origin_z + float(y) * tile;
+            out.uvs[i * 2 + 0]       = float(x) * tile * kUvRepeatsPerWu;
+            out.uvs[i * 2 + 1]       = float(y) * tile * kUvRepeatsPerWu;
+        }
+    }
+
+    auto h_at = [&](int xi, int yi) -> float {
+        if (xi < 0) xi = 0; else if (xi >= int(W)) xi = int(W) - 1;
+        if (yi < 0) yi = 0; else if (yi >= int(H)) yi = int(H) - 1;
+        return hg.heights[size_t(yi) * W + size_t(xi)];
+    };
+    for (uint32_t y = 0; y < H; ++y) {
+        for (uint32_t x = 0; x < W; ++x) {
+            const float hl = h_at(int(x) - 1, int(y));
+            const float hr = h_at(int(x) + 1, int(y));
+            const float hd = h_at(int(x),     int(y) - 1);
+            const float hu = h_at(int(x),     int(y) + 1);
+            float nx = (hl - hr);
+            float ny = 2.f * tile;
+            float nz = (hd - hu);
+            float len = std::sqrt(nx*nx + ny*ny + nz*nz);
+            if (len > 1e-6f) { nx /= len; ny /= len; nz /= len; }
+            else             { nx = 0.f;  ny = 1.f;  nz = 0.f;  }
+            const size_t i = size_t(y) * W + x;
+            out.normals[i * 3 + 0] = nx;
+            out.normals[i * 3 + 1] = ny;
+            out.normals[i * 3 + 2] = nz;
+        }
+    }
+
+    size_t k = 0;
+    for (uint32_t y = 0; y + 1 < H; ++y) {
+        for (uint32_t x = 0; x + 1 < W; ++x) {
+            const uint32_t i00 = uint32_t(size_t(y    ) * W + (x    ));
+            const uint32_t i10 = uint32_t(size_t(y    ) * W + (x + 1));
+            const uint32_t i01 = uint32_t(size_t(y + 1) * W + (x    ));
+            const uint32_t i11 = uint32_t(size_t(y + 1) * W + (x + 1));
+
+            out.indices[k++] = i00;
+            out.indices[k++] = i01;
+            out.indices[k++] = i10;
+
+            out.indices[k++] = i10;
+            out.indices[k++] = i01;
+            out.indices[k++] = i11;
+        }
+    }
+
+    out.ok = true;
+    return true;
+}
+
+// F3 has its own mesh-build entry point and allocation ceiling. The F2
+// BuildTerrainMesh implementation above is intentionally left unchanged.
+bool BuildF3TerrainMesh(const GhfHeights& hg, TerrainMesh& out)
+{
+    out = {};
+    constexpr size_t kMaxF3MeshVertices = 4u * 1024u * 1024u;
+    const uint64_t vertex_count = uint64_t(hg.width) * uint64_t(hg.height);
+    if (!hg.ok || hg.width < 2 || hg.height < 2 ||
+        vertex_count > kMaxF3MeshVertices ||
+        hg.heights.size() != static_cast<size_t>(vertex_count) ||
+        !std::isfinite(hg.origin_x) || !std::isfinite(hg.origin_z) ||
+        !std::isfinite(hg.tile_size) || hg.tile_size <= 0.0f) {
         return false;
     }
 
