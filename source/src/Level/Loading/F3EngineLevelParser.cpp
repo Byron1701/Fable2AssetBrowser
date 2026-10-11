@@ -207,18 +207,12 @@ EngineLevelParseResult ParseEngineLevelV13(
                 EngineLevelInstance instance;
                 instance.offset = r.position();
                 instance.raw = r.slice(r.position(), r.position() + kInstanceSize);
-                for (uint8_t& flag : instance.flags) {
-                    if (!r.u8(flag)) {
+                for (unsigned flagIndex = 0; flagIndex < 3; ++flagIndex) {
+                    if (!r.u8(instance.flags[flagIndex])) {
                         out.error = "Truncated type-2 instance flags.";
                         return out;
                     }
                 }
-                uint8_t fourthFlag = 0;
-                if (!r.u8(fourthFlag)) {
-                    out.error = "Truncated type-2 instance header.";
-                    return out;
-                }
-                instance.flags[3] = fourthFlag;
                 if (!r.u64le(instance.hash)) {
                     out.error = "Truncated type-2 instance hash.";
                     return out;
