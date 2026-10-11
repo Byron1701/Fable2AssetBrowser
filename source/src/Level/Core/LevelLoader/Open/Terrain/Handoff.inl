@@ -60,13 +60,9 @@
                                         + " more)");
                                 }
                             }
+                        } else {
+                            OutputLog::info("F3 terrain: legacy EHF palette scan skipped");
                         }
-
-                    }
-
-                    } else {
-                        OutputLog::info("F3 terrain: legacy EHF palette scan skipped");
-                    }
                 }
             }
         }
