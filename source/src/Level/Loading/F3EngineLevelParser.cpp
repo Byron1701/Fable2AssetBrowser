@@ -161,7 +161,7 @@ EngineLevelParseResult ParseEngineLevelV13(
                 }
                 rec.paths.push_back(std::move(path));
             }
-            if (!r.u32be(rec.instance_count) ||
+            if (!r.u32le(rec.instance_count) ||
                 rec.instance_count > kMaxInstances) {
                 out.error = "Invalid type-2 instance count at offset " +
                             std::to_string(rec.offset) + ".";
@@ -261,7 +261,7 @@ EngineLevelParseResult ParseEngineLevelV13(
                 }
                 rec.instances.push_back(std::move(instance));
             }
-            if (!r.u32be(rec.secondary_instance_count) ||
+            if (!r.u32le(rec.secondary_instance_count) ||
                 rec.secondary_instance_count > kMaxInstances) {
                 out.error = "Invalid type-21 secondary count.";
                 return out;
