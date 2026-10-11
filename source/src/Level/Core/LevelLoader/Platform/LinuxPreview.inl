@@ -18,6 +18,9 @@ static Level::GhfHeights make_linux_preview_heightfield(
     preview.ok = true;
     preview.width = preview_w;
     preview.height = preview_h;
+    preview.origin_x = source.origin_x;
+    preview.origin_z = source.origin_z;
+    preview.base_height = source.base_height;
     preview.tile_size = source.tile_size * float(step);
     preview.min_height = std::numeric_limits<float>::infinity();
     preview.max_height = -std::numeric_limits<float>::infinity();
