@@ -11,6 +11,7 @@ namespace Level {
 struct HeightfieldHeader {
     std::string magic;
     bool        ok = false;
+    bool        f3_layout = false;
     uint32_t    version = 0;
     float       prefix_float = 0.f;
     float       f0 = 0.f;
@@ -55,7 +56,8 @@ bool LoadHeightfieldFiles(const std::string& ehf_path,
                           const std::string& ghf_path,
                           const std::string& hdb_path,
                           const std::string& genv_path,
-                          HeightfieldFiles&  out);
+                          HeightfieldFiles&  out,
+                          bool f3_format = false);
 
 bool DecodeGhfHeights(const std::vector<uint8_t>& ghf_bytes_raw,
                       GhfHeights&                 out);
@@ -80,5 +82,8 @@ struct TerrainMesh {
 };
 
 bool BuildTerrainMesh(const GhfHeights& heights, TerrainMesh& out);
+
+// Separate F3 mesh builder with its own validation and allocation limits.
+bool BuildF3TerrainMesh(const GhfHeights& heights, TerrainMesh& out);
 
 }
