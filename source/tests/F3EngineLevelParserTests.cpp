@@ -118,7 +118,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         std::ifstream file(argv[i], std::ios::binary);
         if (!file) {
-            std::cerr << "Cannot open sample: " << argv[i] << "\\n";
+            std::cerr << "Cannot open sample: " << argv[i] << "\n";
             return 1;
         }
         std::vector<uint8_t> bytes(
@@ -128,11 +128,11 @@ int main(int argc, char** argv) {
         if (!sample.ok || !sample.complete ||
             sample.records.size() != sample.declared_record_count) {
             std::cerr << "Sample failed: " << argv[i] << ": "
-                      << sample.error << "\\n";
+                      << sample.error << "\n";
             return 1;
         }
         std::cout << "PASS " << argv[i] << ": "
-                  << sample.records.size() << " records\\n";
+                  << sample.records.size() << " records\n";
     }
 
     return 0;
