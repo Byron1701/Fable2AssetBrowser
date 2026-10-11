@@ -78,6 +78,7 @@
             
             
             
+            if (!g_pending_terrain_is_f3) {
             const bool custom_blank_terrain =
                 Level::Creation::IsCustomLooseLevel(
                     g_pending_terrain_level_entry);
@@ -138,6 +139,11 @@
                         uv_scale     = 32.0f;
                     }
                 }
+            }
+
+            } else {
+                OutputLog::info("F3 terrain: skipping legacy EHF texture decoding; "
+                                "native F3 material assignment is not yet implemented");
             }
 
             if (!picked_rgba.empty() && picked_w > 0 && picked_h > 0) {
