@@ -1,5 +1,6 @@
 std::atomic<bool>   g_pending_terrain_load{false};
 std::atomic<bool>   g_level_export_only_load{false};
+bool                g_pending_terrain_is_f3 = false;
 Level::TerrainMesh  g_pending_terrain_mesh;
 std::string         g_pending_terrain_label;
 FlatAssetEntry      g_pending_terrain_level_entry;
