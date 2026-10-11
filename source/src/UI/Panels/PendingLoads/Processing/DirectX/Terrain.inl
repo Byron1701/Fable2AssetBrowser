@@ -940,6 +940,7 @@
         g_pending_terrain_ghf_heights.clear();
         g_pending_terrain_ghf_heights.shrink_to_fit();
         g_pending_terrain_ghf_entry = FlatAssetEntry{};
+        g_pending_terrain_is_f3 = false;
         g_pending_level_prop_blocks.clear();
         g_pending_level_prop_blocks.shrink_to_fit();
         g_pending_level_model_body_bnk.clear();
