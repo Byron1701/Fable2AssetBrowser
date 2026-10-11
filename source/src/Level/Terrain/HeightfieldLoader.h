@@ -42,7 +42,7 @@ struct GhfHeights {
     float                 origin_x = 0.f;
     float                 origin_z = 0.f;
     float                 base_height = 0.f; // Header metadata; not added to samples.
-    float                 tile_size = 0.5f;
+    float                 tile_size = 64.f;
     float                 min_height = 0.f;
     float                 max_height = 0.f;
     std::vector<float>    heights;
