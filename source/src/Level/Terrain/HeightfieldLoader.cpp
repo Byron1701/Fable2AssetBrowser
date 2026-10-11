@@ -41,22 +41,11 @@ bool gunzip(const std::vector<uint8_t>& in,
             std::string&                err)
 {
     out.clear();
-    if (in.size() < 2 || in.size() > std::numeric_limits<uInt>::max()) {
-        err = "compressed .ghf size is invalid";
+    if (in.size() < 18 || in[0] != 0x1F || in[1] != 0x8B) {
+        err = "not a gzip stream (magic mismatch)";
         return false;
     }
 
-    // The supplied F3 assets use gzip, but inflateInit2(15 + 32) also
-    // accepts a zlib-wrapped stream. Check either wrapper before inflating.
-    const bool gzip_header = in[0] == 0x1F && in[1] == 0x8B;
-    const bool zlib_header = (in[0] & 0x0F) == 8 &&
-        ((uint32_t(in[0]) << 8) | in[1]) % 31 == 0;
-    if (!gzip_header && !zlib_header) {
-        err = "not a gzip or zlib stream (header mismatch)";
-        return false;
-    }
-
-    constexpr size_t kMaxInflatedBytes = 512u * 1024u * 1024u;
     z_stream zs{};
     zs.next_in   = const_cast<Bytef*>(in.data());
     zs.avail_in  = static_cast<uInt>(in.size());
@@ -65,9 +54,7 @@ bool gunzip(const std::vector<uint8_t>& in,
         return false;
     }
 
-    const size_t initial_size = std::min(
-        kMaxInflatedBytes, std::max<size_t>(64u * 1024u, in.size() * 4u));
-    out.resize(initial_size);
+    out.resize(in.size() * 4);
     size_t produced = 0;
     while (true) {
         zs.next_out  = out.data() + produced;
@@ -76,11 +63,62 @@ bool gunzip(const std::vector<uint8_t>& in,
         produced = out.size() - zs.avail_out;
         if (rc == Z_STREAM_END) break;
         if (rc == Z_OK) {
+            if (zs.avail_out == 0) out.resize(out.size() * 2);
+            continue;
+        }
+        inflateEnd(&zs);
+        err = std::string("inflate failed: ") + (zs.msg ? zs.msg : "?");
+        out.clear();
+        return false;
+    }
+    inflateEnd(&zs);
+    out.resize(produced);
+    return true;
+}
+
+bool gunzip_f3(const std::vector<uint8_t>& in,
+               std::vector<uint8_t>& out,
+               std::string& err)
+{
+    out.clear();
+    if (in.size() < 2 || in.size() > std::numeric_limits<uInt>::max()) {
+        err = "compressed F3 .ghf size is invalid";
+        return false;
+    }
+
+    const bool gzip_header = in[0] == 0x1F && in[1] == 0x8B;
+    const bool zlib_header = (in[0] & 0x0F) == 8 &&
+        ((uint32_t(in[0]) << 8) | in[1]) % 31 == 0;
+    if (!gzip_header && !zlib_header) {
+        err = "F3 .ghf is neither gzip nor zlib wrapped";
+        return false;
+    }
+
+    constexpr size_t kMaxInflatedBytes = 512u * 1024u * 1024u;
+    z_stream zs{};
+    zs.next_in = const_cast<Bytef*>(in.data());
+    zs.avail_in = static_cast<uInt>(in.size());
+    if (inflateInit2(&zs, 15 + 32) != Z_OK) {
+        err = "F3 .ghf inflateInit2 failed";
+        return false;
+    }
+
+    const size_t initial_size = std::min(
+        kMaxInflatedBytes, std::max<size_t>(64u * 1024u, in.size() * 4u));
+    out.resize(initial_size);
+    size_t produced = 0;
+    while (true) {
+        zs.next_out = out.data() + produced;
+        zs.avail_out = static_cast<uInt>(out.size() - produced);
+        const int rc = inflate(&zs, Z_NO_FLUSH);
+        produced = out.size() - zs.avail_out;
+        if (rc == Z_STREAM_END) break;
+        if (rc == Z_OK) {
             if (zs.avail_out == 0) {
                 if (out.size() >= kMaxInflatedBytes) {
                     inflateEnd(&zs);
                     out.clear();
-                    err = "inflated .ghf exceeds the 512 MiB safety limit";
+                    err = "inflated F3 .ghf exceeds the 512 MiB safety limit";
                     return false;
                 }
                 out.resize(std::min(kMaxInflatedBytes, out.size() * 2u));
@@ -88,7 +126,8 @@ bool gunzip(const std::vector<uint8_t>& in,
             continue;
         }
         inflateEnd(&zs);
-        err = std::string("inflate failed: ") + (zs.msg ? zs.msg : "?");
+        err = std::string("F3 .ghf inflate failed: ") +
+              (zs.msg ? zs.msg : "?");
         out.clear();
         return false;
     }
@@ -255,7 +294,10 @@ bool LoadHeightfieldFiles(const std::string& ehf_path,
             out.error = ".ghf load failed: " + err;
             return false;
         }
-        if (!gunzip(out.ghf_bytes_compressed, out.ghf_bytes_raw, err)) {
+        const bool decompressed = f3_format
+            ? gunzip_f3(out.ghf_bytes_compressed, out.ghf_bytes_raw, err)
+            : gunzip(out.ghf_bytes_compressed, out.ghf_bytes_raw, err);
+        if (!decompressed) {
             out.error = ".ghf gunzip failed: " + err;
             return false;
         }
