@@ -42,6 +42,7 @@
             int splat_dbg_w = 0;
             int splat_dbg_h = 0;
 
+            if (!g_pending_terrain_is_f3) {
             if (Level::BakeEhfTerrainCompositeAndSplat(
                     g_pending_terrain_ehf_bytes,
                     g_pending_terrain_level_entry.bnk_path,
@@ -92,6 +93,11 @@
                         uv_scale = 32.0f;
                     }
                 }
+            }
+
+            } else {
+                OutputLog::info("F3 terrain: skipping legacy EHF texture decoding; "
+                                "native F3 material assignment is not yet implemented");
             }
 
             const bool terrain_space_texture =
