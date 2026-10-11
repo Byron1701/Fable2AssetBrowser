@@ -139,6 +139,7 @@
                         OutputLog::success(mos.str());
 
                         g_pending_terrain_mesh        = std::move(mesh);
+                        g_pending_terrain_is_f3       = (info.version == 13);
                         g_pending_terrain_label       = entry.name;
                         g_pending_terrain_level_entry = entry;
                         g_pending_terrain_ehf_bytes   = hf.ehf_bytes;
