@@ -1,3 +1,7 @@
+                        // F3 surrounding EHF files are non-traversable vista terrain.
+                        // The F2 EHF patch parser is not compatible with F3's v18
+                        // header/body layout, so do not route type-13 data through it.
+                        if (info.version != 13) {
                         const std::string main_ehf_norm = norm_path(res.ehf_path);
                         for (const auto& adj_ehf_path : all_ehf_refs) {
                             if (norm_path(adj_ehf_path) == main_ehf_norm) continue;
@@ -159,4 +163,10 @@
                         if (!g_pending_adjacent_terrain_meshes.empty()) {
                             OutputLog::success("adjacent terrain meshes loaded: " +
                                 std::to_string(g_pending_adjacent_terrain_meshes.size()));
+                        }
+                        } else if (all_ehf_refs.size() > 1) {
+                            OutputLog::info("F3 adjacent EHF vista rendering deferred: "
+                                "native F3 EHF body parser is not yet available (" +
+                                std::to_string(all_ehf_refs.size() - 1) +
+                                " surrounding reference(s))");
                         }
