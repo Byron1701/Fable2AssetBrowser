@@ -38,7 +38,11 @@ struct GhfHeights {
     bool                  ok        = false;
     uint32_t              width     = 0;
     uint32_t              height    = 0;
-    float                 tile_size = 64.f;
+    // F3 GHF stores an absolute X/Z origin in its 28-byte little-endian header.
+    float                 origin_x = 0.f;
+    float                 origin_z = 0.f;
+    float                 base_height = 0.f; // Header metadata; not added to samples.
+    float                 tile_size = 0.5f;
     float                 min_height = 0.f;
     float                 max_height = 0.f;
     std::vector<float>    heights;
@@ -55,6 +59,11 @@ bool LoadHeightfieldFiles(const std::string& ehf_path,
 
 bool DecodeGhfHeights(const std::vector<uint8_t>& ghf_bytes_raw,
                       GhfHeights&                 out);
+
+// Fable III GHF has a distinct 28-byte little-endian header and 14-byte records.
+// Kept separate so the existing Fable II decoding route is not changed.
+bool DecodeF3GhfHeights(const std::vector<uint8_t>& ghf_bytes_raw,
+                        GhfHeights&                 out);
 
 struct TerrainMesh {
     bool                  ok = false;
