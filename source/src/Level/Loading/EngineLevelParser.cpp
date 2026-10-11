@@ -82,7 +82,7 @@ bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
                         instance.record_file_offset =
                             static_cast<uint32_t>(source.offset);
                         instance.pos_file_offset =
-                            static_cast<uint32_t>(source.offset + 11);
+                            static_cast<uint32_t>(source.offset + 12);
                         instance.record_size = 92;
                         instance.lev_rec_kind = 1;
                         block.instances.push_back(instance);
