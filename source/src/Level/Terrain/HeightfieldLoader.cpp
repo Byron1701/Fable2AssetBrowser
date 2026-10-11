@@ -231,6 +231,79 @@ bool DecodeGhfHeights(const std::vector<uint8_t>& bytes, GhfHeights& out)
     return true;
 }
 
+bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
+                        GhfHeights& out)
+{
+    out = {};
+    constexpr size_t kHeaderSize = 28;
+    constexpr size_t kRecordStride = 14;
+    if (bytes.size() < kHeaderSize) {
+        out.error = ".ghf too small for the F3 28-byte header";
+        return false;
+    }
+
+    auto u32le = [](const uint8_t* p) -> uint32_t {
+        return uint32_t(p[0]) |
+               (uint32_t(p[1]) << 8) |
+               (uint32_t(p[2]) << 16) |
+               (uint32_t(p[3]) << 24);
+    };
+    auto f32le = [&](const uint8_t* p) -> float {
+        const uint32_t bits = u32le(p);
+        float value = 0.0f;
+        std::memcpy(&value, &bits, sizeof(value));
+        return value;
+    };
+
+    out.origin_x = f32le(bytes.data() + 0x00);
+    out.origin_z = f32le(bytes.data() + 0x04);
+    out.width = u32le(bytes.data() + 0x0C);
+    out.height = u32le(bytes.data() + 0x10);
+    out.base_height = f32le(bytes.data() + 0x14);
+    out.tile_size = 0.5f; // Established F3 GHF grid spacing; header +14 is metadata.
+
+    if (!std::isfinite(out.origin_x) || !std::isfinite(out.origin_z) ||
+        !std::isfinite(out.base_height) ||
+        out.width < 2 || out.height < 2 ||
+        out.width > 8192 || out.height > 8192) {
+        out.error = ".ghf F3 header contains invalid origin, metadata, or dimensions";
+        return false;
+    }
+
+    const size_t cells = size_t(out.width) * size_t(out.height);
+    if (cells > (std::numeric_limits<size_t>::max() - kHeaderSize) / kRecordStride) {
+        out.error = ".ghf F3 dimensions overflow the file-size calculation";
+        return false;
+    }
+    const size_t expected_size = kHeaderSize + cells * kRecordStride;
+    if (bytes.size() != expected_size) {
+        out.error = ".ghf F3 size mismatch: expected " +
+                    std::to_string(expected_size) + " bytes for " +
+                    std::to_string(out.width) + "x" +
+                    std::to_string(out.height) + ", got " +
+                    std::to_string(bytes.size());
+        return false;
+    }
+
+    out.heights.resize(cells);
+    out.min_height = std::numeric_limits<float>::infinity();
+    out.max_height = -std::numeric_limits<float>::infinity();
+    for (size_t i = 0; i < cells; ++i) {
+        const float value = f32le(bytes.data() + kHeaderSize + i * kRecordStride);
+        if (!std::isfinite(value) || value < -1.0e7f || value > 1.0e7f) {
+            out.heights.clear();
+            out.error = ".ghf F3 contains a non-finite or implausible height at sample " +
+                        std::to_string(i);
+            return false;
+        }
+        out.heights[i] = value;
+        out.min_height = std::min(out.min_height, value);
+        out.max_height = std::max(out.max_height, value);
+    }
+    out.ok = true;
+    return true;
+}
+
 bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
 {
     out = {};
@@ -259,9 +332,9 @@ bool BuildTerrainMesh(const GhfHeights& hg, TerrainMesh& out)
     for (uint32_t y = 0; y < H; ++y) {
         for (uint32_t x = 0; x < W; ++x) {
             const size_t i = size_t(y) * W + x;
-            out.positions[i * 3 + 0] = float(x) * tile;
+            out.positions[i * 3 + 0] = hg.origin_x + float(x) * tile;
             out.positions[i * 3 + 1] = hg.heights[i];
-            out.positions[i * 3 + 2] = float(y) * tile;
+            out.positions[i * 3 + 2] = hg.origin_z + float(y) * tile;
             out.uvs[i * 2 + 0]       = float(x) * tile * kUvRepeatsPerWu;
             out.uvs[i * 2 + 1]       = float(y) * tile * kUvRepeatsPerWu;
         }
