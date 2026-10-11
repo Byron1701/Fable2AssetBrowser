@@ -78,10 +78,10 @@
             
             
             
-            if (!g_pending_terrain_is_f3) {
             const bool custom_blank_terrain =
                 Level::Creation::IsCustomLooseLevel(
                     g_pending_terrain_level_entry);
+            if (!g_pending_terrain_is_f3) {
             if (custom_blank_terrain) {
                 OutputLog::info(
                     "terrain: custom level - terrain textures cleared");
@@ -459,7 +459,8 @@
             g_mp.center[1] = cy_mesh;
             g_mp.center[2] = cz_mesh;
 
-            if (!g_pending_terrain_ghf_heights.empty() &&
+            if (!g_pending_terrain_is_f3 &&
+                !g_pending_terrain_ghf_heights.empty() &&
                 g_pending_terrain_ghf_width > 0 &&
                 g_pending_terrain_ghf_height > 0)
             {
@@ -535,7 +536,7 @@
                                    + std::to_string(picked_h)
                                    + ", uv_scale=" + std::to_string(uv_scale)
                                    + ")");
-            } else if (!custom_blank_terrain) {
+            } else if (!custom_blank_terrain && !g_pending_terrain_is_f3) {
                 OutputLog::warn("terrain: no albedo texture decoded "
                                 "(.ehf and .texture_atlas both failed)");
             }
@@ -557,6 +558,7 @@
                 }
             }
 
+            if (!g_pending_terrain_is_f3) {
             const std::vector<TerrainTextureRegistry::LodPaletteEntry>
                 main_lod_palette = TerrainTextureRegistry::GetLodPalette();
 
@@ -896,6 +898,10 @@
                     OutputLog::warn(
                         "terrain SPLAT parse failed; using EHF composite texture");
                 }
+            }
+
+            } else {
+                OutputLog::info("F3 terrain: skipped F2 EHF vista-page, LOD and splat processing");
             }
 
             const size_t terrain_vert_count =
