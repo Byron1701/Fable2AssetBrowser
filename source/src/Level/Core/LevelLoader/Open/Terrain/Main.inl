@@ -12,7 +12,8 @@
             return false;
         } else {
             g_pending_terrain_lightmap = {};
-            if (res.has_terrain_lightmap_key && !res.lmp_path.empty()) {
+            if (info.version != 13 &&
+                res.has_terrain_lightmap_key && !res.lmp_path.empty()) {
                 std::vector<uint8_t> lmp_bytes;
                 if (!load_text_sibling(res.lmp_path, lmp_bytes)) {
                     OutputLog::warn("terrain lightmap: sibling LMP not found: " +
@@ -44,6 +45,8 @@
                         g_pending_terrain_lightmap = std::move(decoded);
                     }
                 }
+            } else if (info.version == 13 && res.has_terrain_lightmap_key) {
+                OutputLog::info("F3 terrain: legacy LMP decoder skipped");
             }
 
             std::ostringstream hos;
