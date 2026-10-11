@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -21,7 +22,7 @@ void putstr(std::vector<uint8_t>& b, const std::string& s) {
 void putfloat(std::vector<uint8_t>& b, float f) {
     uint32_t bits = 0;
     static_assert(sizeof(bits) == sizeof(f));
-    __builtin_memcpy(&bits, &f, sizeof(bits));
+    std::memcpy(&bits, &f, sizeof(bits));
     put32(b, bits);
 }
 std::vector<uint8_t> header(uint32_t count) {
