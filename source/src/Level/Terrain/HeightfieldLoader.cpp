@@ -235,10 +235,16 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
                         GhfHeights& out)
 {
     out = {};
-    constexpr size_t kHeaderSize = 28;
+
+    // The F3 GHF is a 20-byte header followed by 14-byte records and an
+    // 8-byte trailer. Each record's height is a little-endian float at +8.
+    constexpr size_t kHeaderSize = 20;
     constexpr size_t kRecordStride = 14;
-    if (bytes.size() < kHeaderSize) {
-        out.error = ".ghf too small for the F3 28-byte header";
+    constexpr size_t kHeightOffset = 8;
+    constexpr size_t kTrailerSize = 8;
+
+    if (bytes.size() < kHeaderSize + kTrailerSize) {
+        out.error = ".ghf too small for the F3 header and trailer";
         return false;
     }
 
@@ -255,27 +261,35 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
         return value;
     };
 
+    // The first two header floats are the horizontal terrain origin; the
+    // third is the vertical origin. The renderer uses the first two axes as
+    // world X/Z and the per-record heights as world Y.
     out.origin_x = f32le(bytes.data() + 0x00);
     out.origin_z = f32le(bytes.data() + 0x04);
+    out.base_height = f32le(bytes.data() + 0x08);
     out.width = u32le(bytes.data() + 0x0C);
     out.height = u32le(bytes.data() + 0x10);
-    out.base_height = f32le(bytes.data() + 0x14);
-    out.tile_size = 0.5f; // Established F3 GHF grid spacing; header +14 is metadata.
+    out.tile_size = 0.5f;
 
     if (!std::isfinite(out.origin_x) || !std::isfinite(out.origin_z) ||
         !std::isfinite(out.base_height) ||
+        std::fabs(out.origin_x) > 1.0e7f ||
+        std::fabs(out.origin_z) > 1.0e7f ||
         out.width < 2 || out.height < 2 ||
         out.width > 8192 || out.height > 8192) {
-        out.error = ".ghf F3 header contains invalid origin, metadata, or dimensions";
+        out.error = ".ghf F3 header contains invalid origin or dimensions";
         return false;
     }
 
     const size_t cells = size_t(out.width) * size_t(out.height);
-    if (cells > (std::numeric_limits<size_t>::max() - kHeaderSize) / kRecordStride) {
+    if (cells > (std::numeric_limits<size_t>::max() -
+                 kHeaderSize - kTrailerSize) / kRecordStride) {
         out.error = ".ghf F3 dimensions overflow the file-size calculation";
         return false;
     }
-    const size_t expected_size = kHeaderSize + cells * kRecordStride;
+
+    const size_t expected_size =
+        kHeaderSize + cells * kRecordStride + kTrailerSize;
     if (bytes.size() != expected_size) {
         out.error = ".ghf F3 size mismatch: expected " +
                     std::to_string(expected_size) + " bytes for " +
@@ -288,11 +302,14 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
     out.heights.resize(cells);
     out.min_height = std::numeric_limits<float>::infinity();
     out.max_height = -std::numeric_limits<float>::infinity();
+
+    const uint8_t* records = bytes.data() + kHeaderSize;
     for (size_t i = 0; i < cells; ++i) {
-        const float value = f32le(bytes.data() + kHeaderSize + i * kRecordStride);
-        if (!std::isfinite(value) || value < -1.0e7f || value > 1.0e7f) {
+        const float value =
+            f32le(records + i * kRecordStride + kHeightOffset);
+        if (!std::isfinite(value) || value < -1.0e4f || value > 1.0e4f) {
             out.heights.clear();
-            out.error = ".ghf F3 contains a non-finite or implausible height at sample " +
+            out.error = ".ghf F3 contains an invalid height at sample " +
                         std::to_string(i);
             return false;
         }
@@ -300,6 +317,7 @@ bool DecodeF3GhfHeights(const std::vector<uint8_t>& bytes,
         out.min_height = std::min(out.min_height, value);
         out.max_height = std::max(out.max_height, value);
     }
+
     out.ok = true;
     return true;
 }
