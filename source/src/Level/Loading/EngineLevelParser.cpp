@@ -162,8 +162,8 @@ bool ParseEngineLevel(const std::vector<uint8_t>& bytes,
                         instance.values[1] = y;
                         instance.values[2] = z;
 
-                        const float dx = source.values[6];
-                        const float dy = source.values[7];
+                        const float dx = source.values[5];
+                        const float dy = source.values[6];
                         const float direction_length =
                             std::sqrt(dx * dx + dy * dy);
                         if (std::isfinite(direction_length) &&
