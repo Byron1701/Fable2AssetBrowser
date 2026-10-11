@@ -199,7 +199,7 @@
                                            " (" + std::to_string(picked_w) + "x" +
                                            std::to_string(picked_h) + ")");
                     }
-                } else {
+                } else if (!g_pending_terrain_is_f3) {
                     OutputLog::warn("terrain: no albedo texture decoded");
                 }
 
