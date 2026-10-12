@@ -144,7 +144,7 @@
                             }
                             trace << ", mesh Y=[" << min_y << ".." << max_y << "]";
                         }
-                        OutputLog::info(trace.str());
+                        OutputLog::warn(trace.str());
                         loader_progress_update(60, 100, trace.str());
                     }
                     if (!terrain_built) {
