@@ -147,6 +147,7 @@ bool BakeEhfTerrainComposite(const std::vector<uint8_t>& ehf,
 
 extern std::atomic<bool>  g_pending_terrain_load;
 extern std::atomic<bool>  g_level_export_only_load;
+extern bool                g_pending_terrain_is_f3;
 extern Level::TerrainMesh g_pending_terrain_mesh;
 extern std::string        g_pending_terrain_label;
 extern FlatAssetEntry     g_pending_terrain_level_entry;
