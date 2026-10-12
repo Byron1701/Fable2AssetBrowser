@@ -68,6 +68,7 @@
     } else {
         OutputLog::warn("no .ehf or .ghf path in level - can't load terrain");
     }
+    }
 
     debug_scope.Result("success");
     return true;
