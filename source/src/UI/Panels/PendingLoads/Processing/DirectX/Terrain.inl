@@ -387,7 +387,32 @@
                 }
             }
 
-            progress_update(78, 100, "Uploading terrain mesh...");
+            if (g_pending_terrain_is_f3) {
+                std::ostringstream trace;
+                trace << "F3 TRACE before MP_Build: "
+                      << "pending=" << tm.width << "x" << tm.height
+                      << ", pending vertices=" << (tm.positions.size() / 3)
+                      << ", pending indices=" << tm.indices.size()
+                      << ", geometries=" << geoms.size();
+                if (!geoms.empty()) {
+                    const auto& mesh = geoms[0];
+                    trace << ", geom[0] vertices=" << (mesh.positions.size() / 3)
+                          << ", indices=" << mesh.indices.size();
+                    if (mesh.positions.size() >= 3) {
+                        float min_y = mesh.positions[1];
+                        float max_y = mesh.positions[1];
+                        for (size_t i = 1; i < mesh.positions.size(); i += 3) {
+                            const float y = mesh.positions[i];
+                            if (y < min_y) min_y = y;
+                            if (y > max_y) max_y = y;
+                        }
+                        trace << ", geom[0] Y=[" << min_y << ".." << max_y << "]";
+                    }
+                }
+                progress_update(78, 100, trace.str());
+            } else {
+                progress_update(78, 100, "Uploading terrain mesh...");
+            }
             if (g_mp.has_model) {
                 MP_Release(g_mp);
                 g_mp.has_model = false;
@@ -396,6 +421,19 @@
                 g_mp_initialized = true;
             }
             MP_Build(device, geoms, info, g_mp);
+            if (g_pending_terrain_is_f3) {
+                std::ostringstream trace;
+                trace << "F3 TRACE after MP_Build: "
+                      << "has_model=" << (g_mp.has_model ? "yes" : "no")
+                      << ", input geometries=" << geoms.size()
+                      << ", output meshes=" << g_mp.meshes.size();
+                if (!geoms.empty()) {
+                    trace << ", geom[0] vertices="
+                          << (geoms[0].positions.size() / 3)
+                          << ", indices=" << geoms[0].indices.size();
+                }
+                progress_update(80, 100, trace.str());
+            }
             g_mp.no_tilt = true;
             MP_BuildLevelFx(device, g_mp);
             Skybox::PreviewBinding::ApplySkyTheme(
