@@ -409,7 +409,7 @@
                         trace << ", geom[0] Y=[" << min_y << ".." << max_y << "]";
                     }
                 }
-                OutputLog::info(trace.str());
+                OutputLog::warn(trace.str());
                 progress_update(78, 100, trace.str());
             } else {
                 progress_update(78, 100, "Uploading terrain mesh...");
@@ -433,7 +433,7 @@
                           << (geoms[0].positions.size() / 3)
                           << ", indices=" << geoms[0].indices.size();
                 }
-                OutputLog::info(trace.str());
+                OutputLog::warn(trace.str());
                 progress_update(80, 100, trace.str());
             }
             g_mp.no_tilt = true;
