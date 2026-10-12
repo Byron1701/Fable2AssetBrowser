@@ -1,4 +1,10 @@
+    // Determine the terrain game from the pending F3 GHF data. This state
+    // is local to this processing pass, so it cannot leak into later F2 loads.
+    bool g_pending_terrain_is_f3 = false;
     if (g_pending_terrain_load.exchange(false)) {
+        g_pending_terrain_is_f3 =
+            !g_pending_terrain_ghf_payload.empty() ||
+            !g_pending_terrain_ghf_heights.empty();
         if (S.cancel_requested.load()) {
             OutputLog::warn("terrain stage skipped: cancel requested");
             g_pending_terrain_mesh = Level::TerrainMesh{};
