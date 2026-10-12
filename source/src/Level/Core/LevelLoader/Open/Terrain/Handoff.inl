@@ -64,6 +64,9 @@
                             OutputLog::info("F3 terrain: legacy EHF palette scan skipped");
                         }
             }
+                    }
+                }
+            }
     } else {
         OutputLog::warn("no .ehf or .ghf path in level - can't load terrain");
     }
