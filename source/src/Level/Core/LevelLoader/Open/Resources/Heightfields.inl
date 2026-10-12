@@ -3,6 +3,7 @@
     const int kMaxLog      = 16;
 
     std::vector<std::string> all_ehf_refs;
+    std::vector<std::string> all_ghf_refs;
     std::vector<std::string> all_water_refs;
 
     for (const auto& e : info.entries) {
@@ -26,6 +27,8 @@
                             + "  " + e.str_a);
             if (ends_with_ci(e.str_a, ".ehf")) {
                 all_ehf_refs.push_back(e.str_a);
+            } else if (ends_with_ci(e.str_a, ".ghf")) {
+                all_ghf_refs.push_back(e.str_a);
             } else if (ends_with_ci(e.str_a, ".water")) {
                 all_water_refs.push_back(e.str_a);
             }
@@ -296,6 +299,27 @@
             }
         }
         if (res.ehf_path.empty()) res.ehf_path = all_ehf_refs.front();
+    }
+
+    // F3 engine-level entries can name the GHF directly even when the
+    // companion .list is unavailable or does not contain its GHF line.
+    // Resolve only for v13 so the existing F2 resource-selection path stays
+    // unchanged. Prefer the GHF sharing the selected EHF's basename; if the
+    // EHF is not known, use the first GHF reference found in the engine level.
+    if (info.version == 13 && res.ghf_path.empty() && !all_ghf_refs.empty()) {
+        const std::string ehf_base = basename_no_ext(res.ehf_path);
+        for (const auto& candidate : all_ghf_refs) {
+            if (!ehf_base.empty() &&
+                basename_no_ext(candidate) == ehf_base) {
+                res.ghf_path = candidate;
+                break;
+            }
+        }
+        if (res.ghf_path.empty()) {
+            res.ghf_path = all_ghf_refs.front();
+        }
+        OutputLog::info("F3 terrain: selected GHF from engine-level references: " +
+                        res.ghf_path);
     }
 
     res.lmp_path = sibling_with_ext(".lmp");
