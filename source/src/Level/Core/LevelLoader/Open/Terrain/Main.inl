@@ -125,6 +125,27 @@
                         ? BuildF3TerrainMesh(*render_hg, mesh)
                         : BuildTerrainMesh(*render_hg, mesh);
 #endif
+                    // Keep F3 mesh diagnostics in the level-loading dialog,
+                    // where the user can see the active load stage.
+                    if (info.version == 13) {
+                        std::ostringstream trace;
+                        trace << "F3 TRACE after BuildF3TerrainMesh: "
+                              << "built=" << (terrain_built ? "yes" : "no")
+                              << ", source=" << hg.width << "x" << hg.height
+                              << ", mesh vertices=" << (mesh.positions.size() / 3)
+                              << ", indices=" << mesh.indices.size();
+                        if (terrain_built && mesh.positions.size() >= 3) {
+                            float min_y = mesh.positions[1];
+                            float max_y = mesh.positions[1];
+                            for (size_t i = 1; i < mesh.positions.size(); i += 3) {
+                                const float y = mesh.positions[i];
+                                if (y < min_y) min_y = y;
+                                if (y > max_y) max_y = y;
+                            }
+                            trace << ", mesh Y=[" << min_y << ".." << max_y << "]";
+                        }
+                        loader_progress_update(60, 100, trace.str());
+                    }
                     if (!terrain_built) {
                         OutputLog::error("  terrain mesh build failed");
                     } else {
