@@ -33,6 +33,9 @@ struct HeightfieldFiles {
     std::vector<uint8_t>  ehf_bytes;
     std::vector<uint8_t>  ghf_bytes_compressed;
     std::vector<uint8_t>  ghf_bytes_raw;
+    // Extraction provenance for diagnosing F3 GHF resource selection.
+    std::string           ghf_source_bnk;
+    int                   ghf_source_index = -1;
 };
 
 struct GhfHeights {
