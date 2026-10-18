@@ -138,9 +138,13 @@ bool gunzip_f3(const std::vector<uint8_t>& in,
 
 bool extract_bnk_file_by_relpath(const std::string&     relative_path,
                                  std::vector<uint8_t>&  out_bytes,
-                                 std::string&           err)
+                                 std::string&           err,
+                                 std::string*           out_source_bnk = nullptr,
+                                 int*                   out_source_index = nullptr)
 {
     out_bytes.clear();
+    if (out_source_bnk) out_source_bnk->clear();
+    if (out_source_index) *out_source_index = -1;
     const std::string key = normalize_key(relative_path);
 
     for (const auto& fe : S.all_heightfield_files) {
@@ -148,6 +152,8 @@ bool extract_bnk_file_by_relpath(const std::string&     relative_path,
         try {
             auto bytes = BnkCache::extract_bytes(fe.bnk_path, fe.file_index);
             out_bytes.assign(bytes.begin(), bytes.end());
+            if (out_source_bnk) *out_source_bnk = fe.bnk_path;
+            if (out_source_index) *out_source_index = fe.file_index;
             return !out_bytes.empty();
         } catch (...) {
             err = "BnkCache::extract_bytes threw for " + relative_path;
@@ -161,6 +167,8 @@ bool extract_bnk_file_by_relpath(const std::string&     relative_path,
         try {
             auto bytes = BnkCache::extract_bytes(bnk_path, idx);
             out_bytes.assign(bytes.begin(), bytes.end());
+            if (out_source_bnk) *out_source_bnk = bnk_path;
+            if (out_source_index) *out_source_index = idx;
             return !out_bytes.empty();
         } catch (...) {
             err = "BnkCache::extract_bytes threw for " + relative_path;
@@ -290,7 +298,9 @@ bool LoadHeightfieldFiles(const std::string& ehf_path,
     }
 
     if (!ghf_path.empty()) {
-        if (!extract_bnk_file_by_relpath(ghf_path, out.ghf_bytes_compressed, err)) {
+        if (!extract_bnk_file_by_relpath(ghf_path, out.ghf_bytes_compressed, err,
+                                           &out.ghf_source_bnk,
+                                           &out.ghf_source_index)) {
             out.error = ".ghf load failed: " + err;
             return false;
         }
