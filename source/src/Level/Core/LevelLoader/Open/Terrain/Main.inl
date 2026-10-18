@@ -1,6 +1,11 @@
     if (bail_if_cancelled("pre-heightfield")) return false;
 
     if (!res.ehf_path.empty() || !res.ghf_path.empty()) {
+        if (info.version == 13) {
+            OutputLog::warn("F3 GHF DIAG 1/5: selected path='" +
+                            (res.ghf_path.empty() ? std::string("(missing)") : res.ghf_path) +
+                            "'");
+        }
         HeightfieldFiles hf;
         loader_progress_update(32, 100, "Loading heightfield files...");
         if (!LoadHeightfieldFiles(res.ehf_path, res.ghf_path,
@@ -52,9 +57,40 @@
             std::ostringstream hos;
             hos << "heightfield loaded:"
                 << "  ehf=" << hf.ehf_bytes.size() << "B"
-                << "  ghf=" << hf.ghf_bytes_compressed.size() << "B (gz)"
-                << " -> " << hf.ghf_bytes_raw.size() << "B (raw)";
+                << "  ghf=" << hf.ghf_bytes_compressed.size() << "B (compressed)"
+                << " -> " << hf.ghf_bytes_raw.size() << "B (decompressed)";
             OutputLog::success(hos.str());
+
+            if (info.version == 13) {
+                std::ostringstream provenance;
+                provenance << "F3 GHF DIAG 2/5: extracted from BNK='"
+                           << (hf.ghf_source_bnk.empty() ? "(unknown)" : hf.ghf_source_bnk)
+                           << "', entry index=" << hf.ghf_source_index;
+                OutputLog::warn(provenance.str());
+
+                std::ostringstream sizes;
+                sizes << "F3 GHF DIAG 3/5: compressed bytes="
+                       << hf.ghf_bytes_compressed.size()
+                       << ", decompressed bytes=" << hf.ghf_bytes_raw.size();
+                OutputLog::warn(sizes.str());
+
+                if (hf.ghf_bytes_raw.size() >= 0x14) {
+                    const uint8_t* gh = hf.ghf_bytes_raw.data();
+                    const uint32_t raw_width =
+                        uint32_t(gh[0x0C]) | (uint32_t(gh[0x0D]) << 8) |
+                        (uint32_t(gh[0x0E]) << 16) | (uint32_t(gh[0x0F]) << 24);
+                    const uint32_t raw_height =
+                        uint32_t(gh[0x10]) | (uint32_t(gh[0x11]) << 8) |
+                        (uint32_t(gh[0x12]) << 16) | (uint32_t(gh[0x13]) << 24);
+                    std::ostringstream raw_header;
+                    raw_header << "F3 GHF DIAG 4/5: decompressed header dimensions="
+                               << raw_width << "x" << raw_height
+                               << ", raw header bytes available=" << hf.ghf_bytes_raw.size();
+                    OutputLog::warn(raw_header.str());
+                } else {
+                    OutputLog::warn("F3 GHF DIAG 4/5: decompressed GHF is shorter than 0x14 bytes; cannot read dimensions");
+                }
+            }
 
             if (!hf.ghf_bytes_raw.empty()) {
                 GhfHeights hg;
@@ -85,6 +121,18 @@
                         << "  tile=" << hg.tile_size
                         << "  h=[" << hg.min_height << ".." << hg.max_height << "]";
                     OutputLog::success(gos.str());
+                    if (info.version == 13) {
+                        std::ostringstream decoded_diag;
+                        decoded_diag << "F3 GHF DIAG 5/5: decoded grid="
+                                     << hg.width << "x" << hg.height
+                                     << ", samples=" << hg.heights.size()
+                                     << ", height range=[" << hg.min_height
+                                     << ".." << hg.max_height << "]"
+                                     << ", origin=(" << hg.origin_x << ", "
+                                     << hg.origin_z << "), base_height="
+                                     << hg.base_height;
+                        OutputLog::warn(decoded_diag.str());
+                    }
 
                     TerrainMesh mesh;
                     loader_progress_update(58, 100, "Building terrain mesh...");
