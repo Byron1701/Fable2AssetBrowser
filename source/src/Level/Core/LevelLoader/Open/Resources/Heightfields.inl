@@ -304,6 +304,18 @@
         return value;
     };
 
+    if (res.ehf_path.empty() && !all_ehf_refs.empty()) {
+        const std::string ghf_base = basename_no_ext(res.ghf_path);
+        for (const auto& candidate : all_ehf_refs) {
+            if (!ghf_base.empty() &&
+                basename_no_ext(candidate) == ghf_base) {
+                res.ehf_path = candidate;
+                break;
+            }
+        }
+        if (res.ehf_path.empty()) res.ehf_path = all_ehf_refs.front();
+    }
+
     // Select a GHF from the companion list by evidence, not by line order.
     // A list can contain several heightfields; the last .ghf line is not
     // necessarily the terrain for this level.
@@ -349,18 +361,6 @@
             OutputLog::warn("F3 terrain: selected GHF from companion .list: " +
                             res.ghf_path);
         }
-    }
-
-    if (res.ehf_path.empty() && !all_ehf_refs.empty()) {
-        const std::string ghf_base = basename_no_ext(res.ghf_path);
-        for (const auto& candidate : all_ehf_refs) {
-            if (!ghf_base.empty() &&
-                basename_no_ext(candidate) == ghf_base) {
-                res.ehf_path = candidate;
-                break;
-            }
-        }
-        if (res.ehf_path.empty()) res.ehf_path = all_ehf_refs.front();
     }
 
     // Engine-level references are a fallback only when the selected EHF has
