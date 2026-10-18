@@ -88,12 +88,17 @@
                 return false;
             }
         };
+        const bool strict_f3_list_path =
+            info.version == 13 && ends_with_ci(sibling_full_path, ".list");
+
         auto try_bnk_path = [&](const std::string& bnk_path,
                                 const std::string& key,
                                 const std::string& leaf) -> bool
         {
             int idx = BnkCache::find_index(bnk_path, key);
-            if (idx < 0 && !leaf.empty()) {
+            // A v13 companion .list must be resolved by its full virtual path.
+            // Falling back to a basename can silently load another region's list.
+            if (idx < 0 && !strict_f3_list_path && !leaf.empty()) {
                 idx = BnkCache::find_index(bnk_path, leaf);
             }
             return try_extract(bnk_path, idx);
@@ -130,12 +135,13 @@
                 normalize_asset_key(fe.full_path.empty()
                     ? fe.name : fe.full_path);
             const std::string fe_name = normalize_asset_key(fe.name);
-            const bool match =
-                fe_full == key ||
-                fe_name == key ||
-                (!leaf.empty() &&
-                 (filename_of_key(fe_full) == leaf ||
-                  filename_of_key(fe_name) == leaf));
+            const bool match = strict_f3_list_path
+                ? (fe_full == key)
+                : (fe_full == key ||
+                   fe_name == key ||
+                   (!leaf.empty() &&
+                    (filename_of_key(fe_full) == leaf ||
+                     filename_of_key(fe_name) == leaf)));
             if (!match) continue;
             if (try_extract(fe.bnk_path, fe.file_index)) {
                 return true;
@@ -216,7 +222,7 @@
             }
         }
 
-        if (!leaf.empty()) {
+        if (!strict_f3_list_path && !leaf.empty()) {
             std::error_code ec;
             const auto cwd = std::filesystem::current_path(ec);
             if (!ec) {
@@ -233,6 +239,7 @@
     };
 
     LevelResources res;
+    std::vector<std::string> list_ghf_refs;
     {
         std::vector<uint8_t> list_bytes;
         const std::string list_path = sibling_with_ext(".list");
@@ -263,7 +270,7 @@
                            low.compare(low.size() - n, n, ext) == 0;
                 };
                 if      (matches(".ehf"))  res.ehf_path  = line;
-                else if (matches(".ghf"))  res.ghf_path  = line;
+                else if (matches(".ghf"))  list_ghf_refs.push_back(line);
                 else if (matches(".hdb"))  res.hdb_path  = line;
                 else if (matches(".genv")) res.genv_path = line;
                 else if (matches(".ama"))  res.ama_path  = line;
@@ -289,6 +296,61 @@
                        [](unsigned char c){ return std::tolower(c); });
         return s;
     };
+    // Normalize paths before comparing them; archive paths may use either slash.
+    auto normalized_ref = [](std::string value) {
+        std::transform(value.begin(), value.end(), value.begin(),
+                       [](unsigned char c) { return char(std::tolower(c)); });
+        std::replace(value.begin(), value.end(), '\\', '/');
+        return value;
+    };
+
+    // Select a GHF from the companion list by evidence, not by line order.
+    // A list can contain several heightfields; the last .ghf line is not
+    // necessarily the terrain for this level.
+    if (info.version == 13 && res.ghf_path.empty() && !list_ghf_refs.empty()) {
+        const std::string ehf_base = basename_no_ext(res.ehf_path);
+        for (const auto& candidate : list_ghf_refs) {
+            const std::string low = normalized_ref(candidate);
+            if (low.find("/maps/") != std::string::npos &&
+                low.find("/legacy/") != std::string::npos) continue;
+            if (!ehf_base.empty() && basename_no_ext(candidate) == ehf_base) {
+                res.ghf_path = candidate;
+                break;
+            }
+        }
+
+        if (res.ghf_path.empty()) {
+            const std::string ehf_norm = normalized_ref(res.ehf_path);
+            const size_t ehf_slash = ehf_norm.find_last_of('/');
+            const std::string ehf_dir = ehf_slash == std::string::npos
+                ? std::string() : ehf_norm.substr(0, ehf_slash);
+            std::string sole_same_dir_candidate;
+            int same_dir_count = 0;
+            for (const auto& candidate : list_ghf_refs) {
+                const std::string low = normalized_ref(candidate);
+                if (low.find("/maps/") != std::string::npos &&
+                    low.find("/legacy/") != std::string::npos) continue;
+                const size_t slash = low.find_last_of('/');
+                const std::string dir = slash == std::string::npos
+                    ? std::string() : low.substr(0, slash);
+                if (!ehf_dir.empty() && dir == ehf_dir) {
+                    sole_same_dir_candidate = candidate;
+                    ++same_dir_count;
+                }
+            }
+            if (same_dir_count == 1) res.ghf_path = sole_same_dir_candidate;
+        }
+
+        if (res.ghf_path.empty()) {
+            OutputLog::warn("F3 terrain: companion .list contains GHF references, "
+                            "but none can be matched safely to the selected EHF; "
+                            "not selecting an arbitrary GHF.");
+        } else {
+            OutputLog::warn("F3 terrain: selected GHF from companion .list: " +
+                            res.ghf_path);
+        }
+    }
+
     if (res.ehf_path.empty() && !all_ehf_refs.empty()) {
         const std::string ghf_base = basename_no_ext(res.ghf_path);
         for (const auto& candidate : all_ehf_refs) {
@@ -301,34 +363,31 @@
         if (res.ehf_path.empty()) res.ehf_path = all_ehf_refs.front();
     }
 
-    // F3 engine-level entries can name the GHF directly even when the
-    // companion .list is unavailable or does not contain its GHF line.
-    // Resolve only for v13 so the existing F2 resource-selection path stays
-    // unchanged. Prefer the GHF sharing the selected EHF's basename; if the
-    // EHF is not known, use the first GHF reference found in the engine level.
+    // Engine-level references are a fallback only when the selected EHF has
+    // a matching GHF basename. Never use the first unrelated GHF reference.
     if (info.version == 13 && res.ghf_path.empty() && !all_ghf_refs.empty()) {
         const std::string ehf_base = basename_no_ext(res.ehf_path);
         for (const auto& candidate : all_ghf_refs) {
-            if (!ehf_base.empty() &&
-                basename_no_ext(candidate) == ehf_base) {
+            const std::string low = normalized_ref(candidate);
+            if (low.find("/maps/") != std::string::npos &&
+                low.find("/legacy/") != std::string::npos) continue;
+            if (!ehf_base.empty() && basename_no_ext(candidate) == ehf_base) {
                 res.ghf_path = candidate;
                 break;
             }
         }
         if (res.ghf_path.empty()) {
-            res.ghf_path = all_ghf_refs.front();
+            OutputLog::warn("F3 terrain: no engine-level GHF matches the selected "
+                            "EHF basename; refusing arbitrary GHF fallback. "
+                            "GHF references found=" +
+                            std::to_string(all_ghf_refs.size()));
+        } else {
+            OutputLog::warn("F3 terrain: selected GHF from engine-level references: " +
+                            res.ghf_path);
         }
-        OutputLog::info("F3 terrain: selected GHF from engine-level references: " +
-                        res.ghf_path);
     }
 
     res.lmp_path = sibling_with_ext(".lmp");
-    auto normalized_ref = [](std::string value) {
-        std::transform(value.begin(), value.end(), value.begin(),
-                       [](unsigned char c) { return char(std::tolower(c)); });
-        std::replace(value.begin(), value.end(), '\\', '/');
-        return value;
-    };
     const std::string selected_ehf = normalized_ref(res.ehf_path);
     for (const auto& e : info.entries) {
         if (e.type != 4 || !e.has_resource_key) continue;
