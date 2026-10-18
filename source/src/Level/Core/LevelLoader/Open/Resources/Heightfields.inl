@@ -321,10 +321,12 @@
     // necessarily the terrain for this level.
     if (info.version == 13 && res.ghf_path.empty() && !list_ghf_refs.empty()) {
         const std::string ehf_base = basename_no_ext(res.ehf_path);
+        std::vector<std::string> safe_list_ghf_refs;
         for (const auto& candidate : list_ghf_refs) {
             const std::string low = normalized_ref(candidate);
             if (low.find("/maps/") != std::string::npos &&
                 low.find("/legacy/") != std::string::npos) continue;
+            safe_list_ghf_refs.push_back(candidate);
             if (!ehf_base.empty() && basename_no_ext(candidate) == ehf_base) {
                 res.ghf_path = candidate;
                 break;
@@ -338,10 +340,8 @@
                 ? std::string() : ehf_norm.substr(0, ehf_slash);
             std::string sole_same_dir_candidate;
             int same_dir_count = 0;
-            for (const auto& candidate : list_ghf_refs) {
+            for (const auto& candidate : safe_list_ghf_refs) {
                 const std::string low = normalized_ref(candidate);
-                if (low.find("/maps/") != std::string::npos &&
-                    low.find("/legacy/") != std::string::npos) continue;
                 const size_t slash = low.find_last_of('/');
                 const std::string dir = slash == std::string::npos
                     ? std::string() : low.substr(0, slash);
@@ -353,10 +353,24 @@
             if (same_dir_count == 1) res.ghf_path = sole_same_dir_candidate;
         }
 
+        // Some native .list files refer to a single primary GHF by basename,
+        // while the selected EHF is a separate patch resource. If exactly one
+        // non-legacy GHF is listed, that is unambiguous even when the EHF name
+        // and directory cannot be used to pair them.
+        if (res.ghf_path.empty() && safe_list_ghf_refs.size() == 1) {
+            res.ghf_path = safe_list_ghf_refs.front();
+        }
+
         if (res.ghf_path.empty()) {
-            OutputLog::warn("F3 terrain: companion .list contains GHF references, "
-                            "but none can be matched safely to the selected EHF; "
-                            "not selecting an arbitrary GHF.");
+            OutputLog::warn("F3 terrain: companion .list contains " +
+                            std::to_string(safe_list_ghf_refs.size()) +
+                            " non-legacy GHF references, but none can be matched "
+                            "safely to the selected EHF; not selecting an "
+                            "arbitrary GHF. Selected EHF='" + res.ehf_path + "'.");
+            for (const auto& candidate : safe_list_ghf_refs) {
+                OutputLog::warn("F3 terrain: unmatched .list GHF candidate: " +
+                                candidate);
+            }
         } else {
             OutputLog::warn("F3 terrain: selected GHF from companion .list: " +
                             res.ghf_path);
