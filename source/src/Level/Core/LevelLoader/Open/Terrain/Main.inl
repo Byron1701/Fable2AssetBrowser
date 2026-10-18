@@ -150,9 +150,18 @@
                         start_mesh << "  terrain mesh build starting: "
                                    << hg.width << "x" << hg.height
                                    << " vertices=" << (size_t(hg.width) * hg.height)
+                                   << " decoded_samples=" << hg.heights.size()
                                    << " heights=[" << hg.min_height
                                    << ".." << hg.max_height << "]";
-                        OutputLog::info(start_mesh.str());
+                        if (info.version == 13) {
+                            start_mesh << " origin=(" << hg.origin_x << ", "
+                                       << hg.origin_z << ") base_height="
+                                       << hg.base_height;
+                            OutputLog::warn("F3 GHF DIAG 5/5 (immediately before BuildF3TerrainMesh): "
+                                            + start_mesh.str());
+                        } else {
+                            OutputLog::info(start_mesh.str());
+                        }
                     }
 #ifdef _WIN32
                     const bool terrain_built = (info.version == 13)
